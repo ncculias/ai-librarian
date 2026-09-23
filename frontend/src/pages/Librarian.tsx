@@ -15,9 +15,9 @@ import {
   Maximize2,
   Minimize2,
   Play,
-  Pause,
   Square,
   SlidersHorizontal,
+  MessageCircleQuestionMark,
 } from "lucide-react";
 
 import Live2DArea from "../components/Live2DArea";
@@ -29,6 +29,12 @@ import Popover from "../components/Popover";
 
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
 import useLLMStream from "../hooks/useLLMStream";
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  assemblePersona,
+  defaultPersonaModules,
+  type PersonaModuleSet,
+} from "../data/personaModules";
 
 const toolIconMap: Record<string, ElementType> = {
   date_time: Clock,
@@ -42,18 +48,16 @@ const toolIconMap: Record<string, ElementType> = {
   open_weather_map: CloudSun,
 };
 
+// 2026-09 現役型號（GPT-5.4 世代為主力；gpt-4o-mini 留作省錢備援）
 const availableModels = [
+  "openai:gpt-5.4-mini",
+  "openai:gpt-5.4",
+  "openai:gpt-5.4-nano",
+  "openai:gpt-5.1",
   "openai:gpt-4o-mini",
-  "openai:gpt-4o",
-  "openai:o4-mini",
-  "openai:gpt-4.1",
-  "openai:gpt-4.1-mini",
-  "openai:gpt-4.1-nano",
-  "openai:o3-mini",
-  "openai:o1",
 ];
 
-const defaultModel = "openai:gpt-4o-mini";
+const defaultModel = "openai:gpt-5.4-mini";
 
 const chatModes = [
   {
@@ -89,6 +93,16 @@ const storySettings = {
   pace: ["慢", "中", "快"],
 };
 
+/* 人設語氣取自《人工智慧代理圖書館員_Prompt_v1》Role Module A/B（F1–F7），
+   已剝除實驗流程限制；模板內容以「五模組」結構存於 data/personaModules.ts（spec v2）。 */
+const personaOptions = [
+  { id: "none", label: "一般", description: "不套用人設，維持原本的回答方式" },
+  { id: "professional", label: "專業能力型", description: "精準、條列、重視來源與判斷依據" },
+  { id: "warm", label: "溫暖陪伴型", description: "口語、陪伴感、低壓力" },
+] as const;
+
+type PersonaId = (typeof personaOptions)[number]["id"];
+
 const bookGuidePrompt =
   "目前模式是「書籍介紹」。請針對使用者提到的書籍或主題整理回覆，並使用以下欄位：書名、作者、主題、摘要。若無法確認書名或作者，請明確說明需要使用者補充或標示為未提供，不要捏造。";
 
@@ -111,7 +125,7 @@ export default function Librarian() {
   const [selected, setSelected] = useState<Tool | null>(null);
 
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [currentModel, setCurrentModel] = useState(defaultModel);
@@ -121,27 +135,66 @@ export default function Librarian() {
     useState<(typeof bookOutputModes)[number]["id"]>("text");
   const [storyTone, setStoryTone] = useState(storySettings.tone[0]);
   const [storyPace, setStoryPace] = useState(storySettings.pace[1]);
+  const [persona, setPersona] = useState<PersonaId>("none");
+  // 模組化人設內容（spec v2）：出廠值在 data/personaModules.ts，使用者修改存本機
+  const [personaModules, setPersonaModules] = useState<PersonaModuleSet>(() => {
+    try {
+      const raw = localStorage.getItem("personaModules");
+      if (!raw) return defaultPersonaModules();
+      const saved = JSON.parse(raw);
+      const d = defaultPersonaModules();
+      // 逐欄驗證：缺的欄位落回出廠值，避免舊格式或壞資料弄掛畫面
+      for (const pid of ["professional", "warm"] as const) {
+        const sp = saved?.[pid];
+        if (!sp) continue;
+        for (const k of ["opening", "answer", "closing", "error"] as const) {
+          if (typeof sp[k] === "string") d[pid][k] = sp[k];
+        }
+        if (Array.isArray(sp.custom)) {
+          d[pid].custom = sp.custom.filter(
+            (c: unknown): c is { name: string; content: string } =>
+              !!c && typeof (c as any).name === "string" && typeof (c as any).content === "string"
+          );
+        }
+      }
+      return d;
+    } catch {
+      return defaultPersonaModules();
+    }
+  });
   const [isChatExpanded, setIsChatExpanded] = useState(false);
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
   const [voiceStatus, setVoiceStatus] =
-    useState<"idle" | "playing" | "paused">("idle");
+    useState<"idle" | "playing">("idle");
 
-  const applySettings = () => {
-    const t = Math.min(1, Math.max(0, Number(temperature) || 0));
-    const m = Math.max(1, Math.floor(Number(maxTokens) || 1));
+  // 設定視窗按「儲存並套用」：一次接收整份草稿寫回（打字過程不再重繪整頁）
+  const applySettings = (draft: {
+    systemPrompt: string;
+    temperature: number;
+    maxTokens: number;
+    persona: string;
+    personaModules: PersonaModuleSet;
+  }) => {
+    const t = Math.min(1, Math.max(0, Number(draft.temperature) || 0));
+    const m = Math.max(1, Math.floor(Number(draft.maxTokens) || 1));
 
+    setSystemPrompt(draft.systemPrompt);
     setTemperature(t);
     setMaxTokens(m);
+    setPersona(draft.persona as PersonaId);
+    setPersonaModules(draft.personaModules);
 
     localStorage.setItem(
       "aiConfig",
       JSON.stringify({
-        systemPrompt,
+        systemPrompt: draft.systemPrompt,
         temperature: t,
         maxTokens: m,
         model: currentModel,
+        persona: draft.persona,
       }),
     );
+    localStorage.setItem("personaModules", JSON.stringify(draft.personaModules));
 
     alert("設定已保存並套用");
   };
@@ -152,24 +205,51 @@ export default function Librarian() {
       if (!raw) return;
       const saved = JSON.parse(raw);
 
-      if (typeof saved.systemPrompt === "string")
+      if (typeof saved.systemPrompt === "string" && saved.systemPrompt.trim())
         setSystemPrompt(saved.systemPrompt);
       if (typeof saved.temperature === "number")
         setTemperature(saved.temperature);
       if (typeof saved.maxTokens === "number") setMaxTokens(saved.maxTokens);
-      if (typeof saved.model === "string") setCurrentModel(saved.model);
+      // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，落回新預設
+      if (
+        typeof saved.model === "string" &&
+        (availableModels as readonly string[]).includes(saved.model)
+      )
+        setCurrentModel(saved.model);
+      if (
+        typeof saved.persona === "string" &&
+        personaOptions.some((p) => p.id === saved.persona)
+      )
+        setPersona(saved.persona as PersonaId);
     } catch (_) {
       // 忽略錯誤，不讓 UI 中斷
     }
   }, []);
 
-  const modeSystemPrompt =
-    chatMode === "book-guide"
-      ? [systemPrompt, bookGuidePrompt].filter(Boolean).join("\n\n")
-      : systemPrompt;
+  // 三層組裝：自訂提示詞 → 人設模組 → 模式指令（順序依 Prompt v1 第九章「工程端建議」）
+  const personaLabel =
+    personaOptions.find((p) => p.id === persona)?.label ?? "";
+  const personaPrompt =
+    persona === "none"
+      ? ""
+      : assemblePersona(personaLabel, personaModules[persona]);
+  const modeSystemPrompt = [
+    systemPrompt,
+    personaPrompt,
+    chatMode === "book-guide" ? bookGuidePrompt : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
-  const { messages, followUpQuestions, input, setInput, loading, handleSend } =
-    useLLMStream({
+  const {
+    messages,
+    followUpQuestions,
+    input,
+    setInput,
+    loading,
+    pendingStatus,
+    handleSend,
+  } = useLLMStream({
       systemPrompt: modeSystemPrompt,
       temperature,
       maxTokens,
@@ -202,12 +282,10 @@ export default function Librarian() {
     const text = latestAssistantMessage?.content.trim();
     if (!text || !("speechSynthesis" in window)) return;
 
-    if (window.speechSynthesis.paused && voiceStatus === "paused") {
+    // Chrome 引擎若卡在 paused 狀態，cancel/speak 都會被無視：先強制 resume 解鎖
+    try {
       window.speechSynthesis.resume();
-      setVoiceStatus("playing");
-      return;
-    }
-
+    } catch (_) {}
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -221,14 +299,13 @@ export default function Librarian() {
     setVoiceStatus("playing");
   };
 
-  const pauseVoice = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.pause();
-    setVoiceStatus("paused");
-  };
-
   const stopVoice = () => {
     if (!("speechSynthesis" in window)) return;
+    // Chrome 已知 bug：引擎在 paused 狀態下 cancel() 會被無視、聲音停不下來，
+    // 必須先 resume() 解鎖再 cancel()
+    try {
+      window.speechSynthesis.resume();
+    } catch (_) {}
     window.speechSynthesis.cancel();
     setVoiceStatus("idle");
   };
@@ -244,17 +321,18 @@ export default function Librarian() {
   }, [bookOutputMode, chatMode]);
 
   return (
-    <div className="mx-auto grid min-h-screen w-full max-w-screen-2xl grid-cols-1 gap-6 px-6 overflow-hidden md:grid-cols-3">
+    <div className="mx-auto grid min-h-screen w-full max-w-screen-2xl grid-cols-1 gap-4 px-0 overflow-hidden sm:gap-6 sm:px-6 md:grid-cols-3">
       {!isChatExpanded && (
         <Live2DArea
           modelUrl={modelUrl}
           setModelUrl={setModelUrl}
           emotionToken={emotionToken}
+          paused={isConfigOpen}
         />
       )}
 
       <section
-        className={`card motion-surface flex flex-col p-6 ${
+        className={`card motion-surface flex flex-col p-4 sm:p-6 ${
           isChatExpanded
             ? "h-[calc(100vh-8rem)] md:col-span-3"
             : "h-[80vh] md:col-span-2"
@@ -400,18 +478,17 @@ export default function Librarian() {
 
         {isConfigOpen && (
           <ConfigModal
-            systemPrompt={systemPrompt}
-            setSystemPrompt={setSystemPrompt}
-            temperature={temperature}
-            setTemperature={setTemperature}
-            maxTokens={maxTokens}
-            setMaxTokens={setMaxTokens}
-            currentModel={currentModel}
-            setCurrentModel={setCurrentModel}
-            availableModels={availableModels}
+            personaOptions={personaOptions}
+            initial={{
+              systemPrompt,
+              temperature,
+              maxTokens,
+              persona,
+              personaModules,
+            }}
             onClose={() => setIsConfigOpen(false)}
-            onApply={() => {
-              applySettings();
+            onApply={(draft) => {
+              applySettings(draft);
               setIsConfigOpen(false);
             }}
           />
@@ -433,8 +510,9 @@ export default function Librarian() {
               <button
                 key={i}
                 onClick={() => handleSend(q)}
-                className="theme-button-accent motion-button rounded-lg px-3 py-1 text-sm"
+                className="msg-text-sm theme-button-accent motion-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1"
               >
+                <MessageCircleQuestionMark className="h-[1em] w-[1em] shrink-0" aria-hidden="true" />
                 {q}
               </button>
             ))}
@@ -444,6 +522,7 @@ export default function Librarian() {
         <MessageList
           messages={messages}
           followUpQuestions={followUpQuestions}
+          pendingStatus={pendingStatus}
           onFollowUpClick={(q) => handleSend(q)}
           assistantActions={
             canShowVoiceControls
@@ -456,20 +535,14 @@ export default function Librarian() {
                         onClick={playVoice}
                         className="theme-icon-button rounded-full p-1.5"
                         aria-label={
-                          voiceStatus === "paused" ? "繼續播放" : "播放語音"
+                          "播放語音"
                         }
                       >
                         <Play className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={pauseVoice}
-                        disabled={voiceStatus !== "playing"}
-                        className="theme-icon-button rounded-full p-1.5 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="暫停語音"
-                      >
-                        <Pause className="h-3.5 w-3.5" />
-                      </button>
+                      {/* 暫停鈕暫時下架：瀏覽器內建語音引擎的 pause() 對中文雲端聲線
+                          無效（Chrome 引擎層 bug），壞按鈕比沒按鈕更誤導長輩。
+                          待說故事改接 Gemini TTS（語音統一）後，整組換成迷你播放器。 */}
                       <button
                         type="button"
                         onClick={stopVoice}

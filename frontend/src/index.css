@@ -100,7 +100,11 @@
 /* === 全站基底（黑色主題）=== */
 @layer base {
   html {
-    font-size: var(--font-size-base);
+    /* 固定框架度量基準：A+/A- 只放大文字，不動框架。
+       2026-09-21 由 20px 調降為 18px：原本框架比一般網站大 25%、
+       訊息文字卻只有 15px，層級倒置（殼大字小）；調整後內容文字（18px）
+       成為全場最大，按鈕與框架退居配角 */
+    font-size: 18px;
   }
 
   /* body：整站底色、字色、抗鋸齒 */
@@ -293,6 +297,16 @@
 .theme-modal,
 .theme-popover {
   background-color: var(--color-bg-card);
+}
+/* 設定視窗要「不透明」：深色模式的 bg-card 是 60% 半透明（毛玻璃用），
+   會讓背景文字穿透到視窗上；捲軸同步改成主題友善的細條 */
+.theme-modal {
+  background-color: var(--color-bg-input);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+.theme-modal,
+.theme-popover {
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
   box-shadow: 0 24px 50px rgba(var(--color-shadow), 0.16);
@@ -456,4 +470,47 @@
 }
 .animate-fadeIn {
   animation: fadeIn 0.15s ease-out;
+}
+
+/* === A+/A- 字體縮放：只縮文字，不縮框架 ===
+   html 的度量基準固定 20px（見上方 @layer base），這裡讓「可閱讀文字」跟著變數走。
+   注意：App.css 沒有被 import，是死檔案，規則要寫在這裡才有效。 */
+body {
+  font-size: var(--font-size-base);
+}
+/* 聊天訊息文字（預設 20px × 0.9 = 18px）：內容是主角，全場最大的字；
+   延伸問題按鈕的文字也適用——會跟著 A+/A- 放大 */
+.msg-text {
+  font-size: calc(var(--font-size-base) * 0.9);
+}
+.msg-text p {
+  line-height: 1.6;
+}
+/* 稍小一階（預設 = 20px × 0.8 = 16px）：建議問題等次要可讀文字 */
+.msg-text-sm {
+  font-size: calc(var(--font-size-base) * 0.8);
+}
+
+/* === 思考中的三點動畫（聊天等待泡泡）=== */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing-dots i:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i { animation: none; opacity: 0.7; }
 }

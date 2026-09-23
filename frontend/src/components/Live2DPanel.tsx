@@ -6,6 +6,7 @@ type Props = {
   modelUrl: string; // Live2D 模型 JSON 路徑
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
+  paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）
 };
 
 type PonchoPose = {
@@ -56,6 +57,7 @@ export default function Live2DPanel({
   modelUrl,
   className,
   emotionToken,
+  paused = false,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,9 +65,18 @@ export default function Live2DPanel({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 保存目前的 Live2D 模型
   const currentModelRef = useRef<any>(null);
+  const appRef = useRef<PIXI.Application | null>(null);
   const ponchoPoseTargetRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoPoseCurrentRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoEmotionRef = useRef<string>("neutral");
+
+  // 設定視窗等遮罩開啟時暫停動畫：背景 60fps 渲染會與前景 UI 搶資源
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app) return;
+    if (paused) app.ticker.stop();
+    else app.ticker.start();
+  }, [paused]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -117,7 +128,10 @@ export default function Live2DPanel({
 
         if (destroyed) return;
 
-        // 將模型加入舞台
+        // 將模型加入舞台（先隱藏：載入初期 width/height 還沒就緒，
+        // 直接定位會算出爆炸大的縮放、畫面只剩鞋子；等尺寸可信再亮相）
+        model.visible = false;
+        let revealed = false;
         app.stage.addChild(model);
 
         // 尺寸調整函式
@@ -127,15 +141,23 @@ export default function Live2DPanel({
           const h = container.clientHeight || 1;
           app!.renderer.resize(w, h);
 
+          // 用「未縮放的原始尺寸」計算（model.width 會隨 scale 變動，重複 fit 會失真）
+          const baseW = model.width / (model.scale.x || 1);
+          const baseH = model.height / (model.scale.y || 1);
+          // 模型尺寸未就緒（載入中）就先不定位、保持隱藏，等下一幀再試
+          if (!(baseW > 10 && baseH > 10)) return;
+
           const hasAnchor = (model as any)?.anchor?.set;
           if (hasAnchor) model.anchor.set(0.5, 1);
-          else model.pivot?.set?.(model.width / 2, model.height);
+          else model.pivot?.set?.(baseW / 2, baseH);
 
-          const mw = Math.max(1, model.width);
-          const mh = Math.max(1, model.height);
-          const scale = Math.min((w * 0.9) / mw, (h * 0.95) / mh);
+          const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
           model.scale.set(scale > 0 ? scale : 0.5);
           model.position.set(w / 2, h * 0.98);
+          if (!revealed) {
+            revealed = true;
+            model.visible = true;
+          }
         };
 
         let elapsedSec = 0;
@@ -256,16 +278,17 @@ export default function Live2DPanel({
 
         const repeatFit = () => {
           let count = 0;
-          const max = 10;
+          const max = 60; // 最多重試約 1 秒：模型亮相（revealed）後再多校幾幀就收手
           const loop = () => {
             fit();
             count++;
-            if (count < max) requestAnimationFrame(loop);
+            if (count < max && !(revealed && count >= 10)) requestAnimationFrame(loop);
           };
           loop();
         };
         repeatFit();
 
+        appRef.current = app;
         app.start();
       } catch (_) {}
     };

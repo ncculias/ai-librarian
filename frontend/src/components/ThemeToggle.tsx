@@ -13,7 +13,7 @@ export default function ThemeToggle({ className = "" }: Props) {
     <button
       type="button"
       onClick={toggleTheme}
-      className={`theme-toggle ${className}`.trim()}
+      className={`theme-toggle text-base ${className}`.trim()}
       aria-label={isLight ? "切換為深色模式" : "切換為淺色模式"}
       aria-pressed={!isLight}
     >
