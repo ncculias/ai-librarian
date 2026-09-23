@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # TODO(youkwan): Add a way to switch between development and production mode.
     host: str = "0.0.0.0"
     port: int = 8000
+    reload: bool = False  # uvicorn auto-reload; keep off in production (StatReload pins a CPU)
     allowed_origins: list[str] | None = Field(default_factory=list)
 
     # LLM API keys

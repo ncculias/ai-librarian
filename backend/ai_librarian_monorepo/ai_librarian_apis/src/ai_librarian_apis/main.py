@@ -34,5 +34,5 @@ if __name__ == "__main__":
         "ai_librarian_apis.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        reload=settings.reload,
     )
