@@ -1,5 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
-import { BookOpen, MessageCircleMore } from "lucide-react";
+import { BookImage, BookOpen, MessageCircleMore } from "lucide-react";
 import FontSizeController from "./FontSizeController";
 import ThemeToggle from "./ThemeToggle";
 
@@ -9,12 +9,11 @@ const navItems = [
     label: "聊天問答",
     icon: MessageCircleMore,
   },
-  // 暫時隱藏熟齡繪本入口；路由與頁面保留，之後可再打開。
-  // {
-  //   to: "/picture-book",
-  //   label: "熟齡繪本",
-  //   icon: BookImage,
-  // },
+  {
+    to: "/my-story-book",
+    label: "繪本生成",
+    icon: BookImage,
+  },
 ];
 
 export default function Navbar() {
@@ -28,7 +27,7 @@ export default function Navbar() {
           >
             <BookOpen className="h-7 w-7 text-[var(--color-accent-strong)]" />
             <div>
-              <div className="font-bold text-[var(--color-text-primary)]">
+              <div className="text-base font-bold text-[var(--color-text-primary)]">
                 AI Librarian
               </div>
               <div className="text-xs text-[var(--color-text-secondary)]">

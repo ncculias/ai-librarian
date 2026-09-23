@@ -13,8 +13,12 @@ class Model(StrEnum):
     since ReDoc does not respect Pydantic's default settings like Swagger and uses the first enum value as default.
     """
 
-    # OpenAI
-    OPENAI_GPT_4O_MINI = "openai:gpt-4o-mini"  # First model will be the default in ReDoc
+    # OpenAI（2026-09 更新：GPT-5.4 世代為現役主力；gpt-4o 系列為 legacy 備援）
+    OPENAI_GPT_5_4_MINI = "openai:gpt-5.4-mini"  # First model will be the default in ReDoc
+    OPENAI_GPT_5_4 = "openai:gpt-5.4"
+    OPENAI_GPT_5_4_NANO = "openai:gpt-5.4-nano"
+    OPENAI_GPT_5_1 = "openai:gpt-5.1"
+    OPENAI_GPT_4O_MINI = "openai:gpt-4o-mini"
     OPENAI_GPT_4O = "openai:gpt-4o"
     OPENAI_GPT_O4_MINI = "openai:o4-mini"
     OPENAI_GPT_4_1 = "openai:gpt-4.1"

@@ -23,8 +23,21 @@ export default function useLLMStream({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  // 等待中的狀態文字（顯示在「三點思考泡泡」裡）；null = 沒有等待泡泡
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+
+  /* 掛站修復（2026-09-22）：
+     1) thread_id 原本寫死 "thread-frontend"，部署後所有訪客共用同一條線程，
+        後端記憶滾雪球直到撞 GPT 上下文上限、全站報錯。
+        改為每次請求一次性隨機編號（無狀態模式：對話記憶以前端帶的歷史為準）。
+     2) 送出的歷史加上限，單一使用者聊再久也不會超過模型上下文。 */
+  const HISTORY_LIMIT = 20;
+  const newThreadId = () =>
+    `web-${(crypto.randomUUID?.() ?? Math.random().toString(36).slice(2))}`;
 
   const llmBufferRef = useRef<string>("");
+  // 並發鎖用 ref 而不是 state：state 要等重繪才更新，連點的空窗會穿透；ref 當下就生效
+  const inFlightRef = useRef(false);
 
   const appendToAssistantMessage = (delta: string) => {
     if (!delta) return;
@@ -69,7 +82,7 @@ export default function useLLMStream({
             temperature,
             max_tokens: 128,
           },
-          thread_id: "thread-suggestions",
+          thread_id: newThreadId(),
         }),
       });
 
@@ -106,8 +119,11 @@ export default function useLLMStream({
 
   // async/await：送出訊息並接收 SSE
   const handleSend = async (customInput?: string) => {
+    // 並發鎖：回覆進行中一律不收新請求（按鈕/Enter/建議問題/延伸問題四條路統一在這擋）
+    if (inFlightRef.current) return;
     const text = customInput ?? input;
     if (!text.trim()) return;
+    inFlightRef.current = true;
 
     // 先插入使用者訊息
     const userMsg: Message = { role: "user", content: text };
@@ -115,15 +131,16 @@ export default function useLLMStream({
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+    setPendingStatus("思考中");
     setFollowUpQuestions([]);
 
     // 組 API messages
     const messagesForAPI: APIMessage[] = [
       { role: "system", content: systemPrompt },
-
-      ...messages.map(
-        (m) => ({ role: m.role, content: m.content } as APIMessage)
-      ),
+      // 只帶最近 HISTORY_LIMIT 則：夠維持對話連貫，又不會撞模型上下文上限
+      ...messages
+        .slice(-HISTORY_LIMIT)
+        .map((m) => ({ role: m.role, content: m.content } as APIMessage)),
       userMsg,
     ];
 
@@ -142,10 +159,22 @@ export default function useLLMStream({
             temperature,
             max_tokens: maxTokens,
           },
-          thread_id: "thread-frontend",
+          thread_id: newThreadId(),
         }),
       });
 
+      // 先確認不是錯誤回應，再開始解串流（錯誤回應也有 body，硬解會默默失敗）
+      if (!response.ok) {
+        const detail = await response
+          .json()
+          .then((j) => j?.detail)
+          .catch(() => null);
+        throw new Error(
+          typeof detail === "string" && detail
+            ? detail
+            : `伺服器回應異常（${response.status}），請稍後再試`
+        );
+      }
       if (!response.body) throw new Error("後端沒有 body");
 
       const reader = response.body.getReader();
@@ -175,22 +204,26 @@ export default function useLLMStream({
             .replace("event:", "")
             .trim()
             .toLowerCase();
-          const data = JSON.parse(dataLine.replace("data:", "").trim());
+          // 壞一段跳一段：單一壞封包不炸斷整條回覆
+          let data: any;
+          try {
+            data = JSON.parse(dataLine.replace("data:", "").trim());
+          } catch {
+            console.warn("略過無法解析的 SSE 區塊：", part.slice(0, 120));
+            continue;
+          }
 
           // 處理不同事件
           switch (eventType) {
             case "tool_chosen":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  role: "assistant",
-                  content: `使用工具：${data.used_tools.name}`,
-                },
-              ]);
+              // 不再塞進對話紀錄，改顯示在等待泡泡的狀態文字
+              setPendingStatus(`正在使用：${data.used_tools?.name ?? "工具"}⋯⋯`);
               break;
 
             case "tool_output":
               console.log("🔧 工具輸出：", data);
+              // 工具跑完、回到思考狀態（多工具串接時會再切到下一個工具名）
+              setPendingStatus("思考中");
               break;
 
             case "emotion":
@@ -208,6 +241,7 @@ export default function useLLMStream({
                     ? data.message_chunk
                     : "";
                 llmBufferRef.current = chunk;
+                setPendingStatus(null); // 第一個字到了，收起思考泡泡
 
                 setMessages((prev) => [
                   ...prev,
@@ -252,13 +286,21 @@ export default function useLLMStream({
       }
 
       setLoading(false);
+      setPendingStatus(null);
     } catch (err) {
       console.error("handleSend 錯誤：", err);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "系統錯誤，請稍後再試" },
-      ]);
+      // 有中文人話（後端 detail 或上面自組的訊息）就照顯示；
+      // 其他技術性錯誤（如 Failed to fetch）給通用文案
+      const raw = err instanceof Error ? err.message : "";
+      const msg = /[一-鿿]/.test(raw)
+        ? raw
+        : "系統錯誤，請確認網路或稍後再試";
+      setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
       setLoading(false);
+      setPendingStatus(null);
+    } finally {
+      // 串流完整結束（或失敗）才釋放鎖
+      inFlightRef.current = false;
     }
   };
 
@@ -268,6 +310,7 @@ export default function useLLMStream({
     input,
     setInput,
     loading,
+    pendingStatus,
     handleSend,
   };
 }

@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
 
-from ai_librarian_core.agents.react.base import BaseReactAgent, MissingAIMessageError, ReactAgentError
+from ai_librarian_core.agents.react.base import _cleanup_thread, BaseReactAgent, MissingAIMessageError, ReactAgentError
 from ai_librarian_core.agents.react.state import MessagesState
 from ai_librarian_core.models.llm_config import LLMConfig
 from ai_librarian_core.models.used_tool import UsedTool
@@ -78,18 +78,30 @@ class ReactAgent(BaseReactAgent):
         self, messages: list[BaseMessage], thread_id: str | None = None, llm_config: LLMConfig = LLMConfig()
     ) -> tuple[AIMessage, list[UsedTool]]:
         state = MessagesState(messages=messages, llm_config=llm_config)
-        result = self.workflow.invoke(state, config={"configurable": {"thread_id": thread_id or get_thread_id()}})
+        tid = thread_id or get_thread_id()
+        try:
+            result = self.workflow.invoke(state, config={"configurable": {"thread_id": tid}})
+        finally:
+            _cleanup_thread(self.checkpointer, tid)
         return result["messages"][-1], result["used_tools"]
 
     def stream(
         self, messages: list[BaseMessage], thread_id: str | None = None, llm_config: LLMConfig = LLMConfig()
     ) -> Iterator[tuple[BaseMessage, dict[str, str]]]:
         state = MessagesState(messages=messages, llm_config=llm_config)
-        return self.workflow.stream(
-            state,
-            stream_mode="messages",
-            config={"configurable": {"thread_id": thread_id or get_thread_id()}},
-        )
+        tid = thread_id or get_thread_id()
+
+        def _gen() -> Iterator[tuple[BaseMessage, dict[str, str]]]:
+            try:
+                yield from self.workflow.stream(
+                    state,
+                    stream_mode="messages",
+                    config={"configurable": {"thread_id": tid}},
+                )
+            finally:
+                _cleanup_thread(self.checkpointer, tid)
+
+        return _gen()
 
     def plot(self) -> str:
         return self.workflow.get_graph().draw_mermaid()

@@ -3,6 +3,7 @@ import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Librarian from "./pages/Librarian";
 import PictureBook from "./pages/PictureBook";
+import MyStoryBook from "./pages/MyStoryBook";
 import Placeholder from "./pages/Placeholder";
 import Home from "./Home";
 import Footer from "./components/Footer";
@@ -33,6 +34,7 @@ export default function App() {
 
           <Route path="/librarian" element={<Librarian />} />
           <Route path="/picture-book" element={<PictureBook />} />
+          <Route path="/my-story-book" element={<MyStoryBook />} />
 
           <Route path="/search" element={<Placeholder title="搜尋圖書" />} />
           <Route

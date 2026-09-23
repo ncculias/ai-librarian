@@ -11,12 +11,14 @@ type Props = {
   modelUrl: string;
   setModelUrl: (url: string) => void;
   emotionToken: string | null;
+  paused?: boolean;
 };
 
 export default function Live2DArea({
   modelUrl,
   setModelUrl,
   emotionToken,
+  paused = false,
 }: Props) {
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
   const [resizeKey, setResizeKey] = useState(0);
@@ -40,12 +42,9 @@ export default function Live2DArea({
     return () => window.removeEventListener("resize", handle);
   }, [rebuildPanel]);
 
-  useEffect(() => {
-    const handleFontSizeChange = () => rebuildPanel();
-    window.addEventListener("font-size-change", handleFontSizeChange);
-    return () =>
-      window.removeEventListener("font-size-change", handleFontSizeChange);
-  }, [rebuildPanel]);
+  // 註：以前 A+/A- 會改變整體版面，所以要監聽 font-size-change 重建面板；
+  // 現在字級縮放只影響文字、不動版面（index.css 的 html 基準已固定），不需要重建，
+  // 反而重建會讓模型重載、鏡頭閃到腳部。故移除該監聽。
 
   useEffect(() => {
     const manifestPath = "/index.json";
@@ -86,6 +85,7 @@ export default function Live2DArea({
             modelUrl={modelUrl}
             className="w-full h-full"
             emotionToken={emotionToken ?? undefined}
+            paused={paused}
           />
         )}
       </div>
