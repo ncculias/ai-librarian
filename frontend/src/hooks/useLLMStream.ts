@@ -1,3 +1,5 @@
+// ops: backend base url comes from VITE_API_URL when set
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 import { useState, useRef } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -61,7 +63,7 @@ export default function useLLMStream({
   const requestFollowUps = async (answer: string) => {
     try {
 
-      const res = await fetch("http://localhost:8000/v2/react/run", {
+      const res = await fetch(`${API_BASE_URL}/v2/react/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -149,7 +151,7 @@ export default function useLLMStream({
 
       // 開 SSE 請求
 
-      const response = await fetch("http://localhost:8000/v2/react/stream", {
+      const response = await fetch(`${API_BASE_URL}/v2/react/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
