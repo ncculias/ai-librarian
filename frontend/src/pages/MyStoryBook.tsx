@@ -30,6 +30,40 @@ const API_BASE = "http://localhost:8000";
 
 type Step = "home" | "confirm" | "generating" | "book";
 
+/* 書本工作階段（2026-09-23）：
+   原本故事存在頁面元件的 state，切到聊天問答再回來（元件重建）就全部消失。
+   搬到模組層級後，同一個分頁內切換路由都會保留：照片、故事、頁碼、插畫、語音快取
+   （語音保留特別重要——不用重新呼叫 TTS 扣額度）。重新整理瀏覽器仍會清空（屬預期）。 */
+const bookSession: {
+  step: Step;
+  photos: Photo[];
+  story: StoryBook | null;
+  page: number;
+  illustMode: boolean;
+  illustMap: Record<string, string>;
+  audioCache: Map<string, string> | null;
+} = {
+  step: "home",
+  photos: [],
+  story: null,
+  page: 0,
+  illustMode: false,
+  illustMap: {},
+  audioCache: null,
+};
+
+function resetBookSession() {
+  bookSession.photos.forEach((p) => URL.revokeObjectURL(p.url));
+  bookSession.audioCache?.forEach((url) => URL.revokeObjectURL(url));
+  bookSession.step = "home";
+  bookSession.photos = [];
+  bookSession.story = null;
+  bookSession.page = 0;
+  bookSession.illustMode = false;
+  bookSession.illustMap = {};
+  bookSession.audioCache = null;
+}
+
 type Photo = { url: string; file: File };
 
 type StoryPage = { photo_index: number; heading: string; text: string };
@@ -61,11 +95,21 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 export default function MyStoryBook() {
-  const [step, setStep] = useState<Step>("home");
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [story, setStory] = useState<StoryBook | null>(null);
+  const [step, setStep] = useState<Step>(() =>
+    bookSession.step === "generating" ? "confirm" : bookSession.step
+  );
+  const [photos, setPhotos] = useState<Photo[]>(() => bookSession.photos);
+  const [story, setStory] = useState<StoryBook | null>(() => bookSession.story);
   const [errorMsg, setErrorMsg] = useState("");
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(() => bookSession.page);
+
+  // 任何變更即時同步回工作階段（切走再切回來就能原樣還原）
+  useEffect(() => {
+    bookSession.step = step;
+    bookSession.photos = photos;
+    bookSession.story = story;
+    bookSession.page = page;
+  }, [step, photos, story, page]);
   const fileRef = useRef<HTMLInputElement>(null);
   // 全程共用同一個播放器元件；在使用者手勢中解鎖一次，之後就能自由播放
   const audioElRef = useRef<HTMLAudioElement | null>(null);
@@ -105,6 +149,11 @@ export default function MyStoryBook() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: StoryBook = await res.json();
+      // 新書上架：上一本的插畫與語音快取作廢
+      bookSession.illustMap = {};
+      bookSession.illustMode = false;
+      bookSession.audioCache?.forEach((url) => URL.revokeObjectURL(url));
+      bookSession.audioCache = null;
       setStory(data);
       setPage(0);
       setStep("book");
@@ -117,6 +166,7 @@ export default function MyStoryBook() {
 
   const reset = () => {
     clearPhotos();
+    resetBookSession();
     setStory(null);
     setPage(0);
     setErrorMsg("");
@@ -300,8 +350,14 @@ function BookStep({
   const screen = screens[cur];
 
   // 繪本插畫模式：把照片重繪成插畫（文字不變，只換圖）
-  const [illustMode, setIllustMode] = useState(false);
-  const [illustMap, setIllustMap] = useState<Record<string, string>>({}); // 原圖url → 插畫dataURL
+  const [illustMode, setIllustMode] = useState(() => bookSession.illustMode);
+  const [illustMap, setIllustMap] = useState<Record<string, string>>(
+    () => bookSession.illustMap
+  ); // 原圖url → 插畫dataURL
+  useEffect(() => {
+    bookSession.illustMode = illustMode;
+    bookSession.illustMap = illustMap;
+  }, [illustMode, illustMap]);
   const [illustProgress, setIllustProgress] = useState<{ done: number; total: number } | null>(null);
   const hasIllust = Object.keys(illustMap).length > 0;
   const resolvePhoto = (url: string) =>
@@ -351,7 +407,9 @@ function BookStep({
 
   // 朗讀：後端 Gemini TTS 真人聲。背景預先生成 + 快取，點下去通常立即播。
   // 播放用 audioElRef（父層已在使用者手勢中解鎖的同一個播放器），避免被瀏覽器擋。
-  const cacheRef = useRef<Map<string, string>>(new Map()); // 文字 → 音檔 objectURL
+  const cacheRef = useRef<Map<string, string>>(
+    bookSession.audioCache ?? (bookSession.audioCache = new Map())
+  ); // 文字 → 音檔 objectURL（存於工作階段，切頁保留）
   const inflightRef = useRef<Map<string, Promise<string>>>(new Map()); // 進行中的請求（去重）
   const [audioState, setAudioState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const [progress, setProgress] = useState({ t: 0, d: 0 }); // 播放進度（秒）/ 總長
@@ -575,14 +633,12 @@ function BookStep({
     return () => stopAudio();
   }, [cur, stopAudio]);
 
-  // 離開書本時，停止播放並釋放所有快取的音檔
+  // 離開書本時只停止播放；音檔快取交給工作階段保管（reset/生成新書時才釋放），
+  // 切去聊天問答再回來不用重新呼叫 TTS 扣額度
   useEffect(() => {
-    const cache = cacheRef.current;
     const el = audioElRef.current;
     return () => {
       el?.pause();
-      cache.forEach((url) => URL.revokeObjectURL(url));
-      cache.clear();
     };
   }, [audioElRef]);
 
