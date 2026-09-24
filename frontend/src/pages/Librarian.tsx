@@ -139,7 +139,7 @@ export default function Librarian() {
   // 模組化人設內容（spec v2）：出廠值在 data/personaModules.ts，使用者修改存本機
   const [personaModules, setPersonaModules] = useState<PersonaModuleSet>(() => {
     try {
-      const raw = localStorage.getItem("personaModules");
+      const raw = localStorage.getItem("personaModules_v2");
       if (!raw) return defaultPersonaModules();
       const saved = JSON.parse(raw);
       const d = defaultPersonaModules();
@@ -194,7 +194,7 @@ export default function Librarian() {
         persona: draft.persona,
       }),
     );
-    localStorage.setItem("personaModules", JSON.stringify(draft.personaModules));
+    localStorage.setItem("personaModules_v2", JSON.stringify(draft.personaModules));
 
     alert("設定已保存並套用");
   };

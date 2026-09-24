@@ -116,8 +116,16 @@ class GoogleBooksAPIWrapper(BaseModel):
             authors = self._format_authors(volume_info.get("authors", []))
             summary = volume_info.get("description", "No summary available")
             source = volume_info.get("infoLink", "No source available")
+            # 出版欄位一併帶出（2026-09-24）：模型拿不到 publishedDate 時，
+            # 會從簡介文案裡的其他年份（如獎項年份）誤推出版年
+            publisher = volume_info.get("publisher", "Unknown Publisher")
+            published_date = volume_info.get("publishedDate", "Unknown Date")
+            page_count = volume_info.get("pageCount", "")
 
-            desc = f'{i}. "{title}" by {authors}: {summary}\n'
+            desc = f'{i}. "{title}" by {authors}\n'
+            desc += f"Publisher: {publisher} | Published: {published_date}"
+            desc += f" | Pages: {page_count}\n" if page_count else "\n"
+            desc += f"Summary: {summary}\n"
             desc += f"You can read more at {source}"
             results.append(desc)
 
