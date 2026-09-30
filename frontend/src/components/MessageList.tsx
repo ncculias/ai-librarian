@@ -22,14 +22,17 @@ type Props = {
 const orderedListPattern = /^\d+\.\s+/;
 const unorderedListPattern = /^[-*]\s+/;
 const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
-const bareUrlPattern = /(https?:\/\/[^\s<]+)/g;
+// Markdown 自動連結 <https://...>：顯示時去掉尖括號
+const autolinkPattern = /<(https?:\/\/[^\s>]+)>/g;
+// 裸網址：排除 < >，否則 <url> 的結尾 > 會被吞進網址、連結壞掉
+const bareUrlPattern = /(https?:\/\/[^\s<>]+)/g;
 const inlineCodePattern = /`([^`]+)`/g;
 const boldPattern = /\*\*([^*]+)\*\*/g;
 
 function renderInlineMarkdown(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   const pattern = new RegExp(
-    `${markdownLinkPattern.source}|${inlineCodePattern.source}|${boldPattern.source}|${bareUrlPattern.source}`,
+    `${markdownLinkPattern.source}|${inlineCodePattern.source}|${boldPattern.source}|${autolinkPattern.source}|${bareUrlPattern.source}`,
     "g"
   );
 
@@ -65,16 +68,18 @@ function renderInlineMarkdown(text: string): ReactNode[] {
           {match[4]}
         </strong>
       );
-    } else if (match[5]) {
+    } else if (match[5] || match[6]) {
+      // match[5]＝<url> 自動連結（尖括號不顯示）；match[6]＝裸網址
+      const url = match[5] ?? match[6];
       nodes.push(
         <a
-          key={`${match.index}-${match[5]}`}
-          href={match[5]}
+          key={`${match.index}-${url}`}
+          href={url}
           target="_blank"
           rel="noreferrer"
           className="message-link"
         >
-          {match[5]}
+          {url}
         </a>
       );
     }
