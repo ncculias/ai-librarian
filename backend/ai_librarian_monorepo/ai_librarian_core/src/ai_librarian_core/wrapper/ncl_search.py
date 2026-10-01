@@ -1,21 +1,27 @@
+"""NBINet（全國圖書書目資訊網）聯合目錄查詢。
+
+2026-09-30 重寫：原實作以 Playwright 爬國圖 aleweb 館藏系統，
+(1) 本機 IP 網段遭 aleweb 反爬蟲 403 封鎖、(2) 瀏覽器爬蟲笨重（原作者 TODO 亦言明）。
+改走 NBINet 新版聯合目錄（Ex Libris Primo，雲端主機）之公開 JSON 查詢介面：
+無需瀏覽器與憑證、涵蓋全國圖書館館藏（含國圖）、回應快且不觸發反爬蟲。
+類別與方法簽名維持不變（NCLSearch.run / AsyncNCLSearch.arun），tools 層無感。
+"""
+
+import asyncio
+import time
 import urllib.parse
 
-from playwright.async_api import (
-    BrowserContext as AsyncBrowserContext,
-)
-from playwright.async_api import (
-    Page as AsyncPage,
-)
-from playwright.async_api import (
-    TimeoutError as AsyncTimeoutError,
-)
-from playwright.async_api import (
-    async_playwright,
-)
-from playwright.sync_api import BrowserContext, Page, TimeoutError, sync_playwright
+import httpx
 from pydantic import BaseModel, Field
 
-NCL_ENTRY_URL = "https://aleweb.ncl.edu.tw/F"
+PRIMO_BASE = "https://nbinet.primo.exlibrisgroup.com"
+PRIMO_VID = "886NCL_NBINET:NBINET"
+PRIMO_INST = "886NCL_NBINET"
+USER_AGENT = "ai-librarian/1.0 (academic research; NCCU LIAS)"
+
+# 禮貌性節流：兩次查詢至少間隔 NCL_MIN_INTERVAL 秒
+NCL_MIN_INTERVAL = 2.0
+_last_crawl_at = 0.0
 
 
 class NCLCrawlerError(Exception):
@@ -23,246 +29,153 @@ class NCLCrawlerError(Exception):
 
 
 class NCLCrawlerCookieTimeoutError(NCLCrawlerError):
-    pass
+    """保留舊名稱以維持相容（現行實作不再使用 cookie）。"""
 
 
 class NCLCrawlerSessionIdNotFoundError(NCLCrawlerError):
-    pass
+    """保留舊名稱以維持相容。"""
 
 
 class NCLCrawlerSearchTimeoutError(NCLCrawlerError):
     pass
 
 
+class NCLCrawlerAccessDeniedError(NCLCrawlerError):
+    """目錄服務拒絕存取。"""
+
+
 class NCLCrawlerSearchNoResultsError(NCLCrawlerError):
     pass
 
 
+def _throttle_sync() -> None:
+    global _last_crawl_at
+    wait = _last_crawl_at + NCL_MIN_INTERVAL - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    _last_crawl_at = time.monotonic()
+
+
+async def _throttle_async() -> None:
+    global _last_crawl_at
+    wait = _last_crawl_at + NCL_MIN_INTERVAL - time.monotonic()
+    if wait > 0:
+        await asyncio.sleep(wait)
+    _last_crawl_at = time.monotonic()
+
+
+def _search_url(query: str, limit: int) -> str:
+    q = urllib.parse.quote(f"any,contains,{query}", safe="")
+    return (
+        f"{PRIMO_BASE}/primaws/rest/pub/pnxs"
+        f"?citationTrailFilterByAvailability=true&limit={limit}&newspapersActive=false"
+        f"&newspapersSearch=false&offset=0&pcAvailability=true&scope=MyInstitution"
+        f"&searchInFulltextUserSelection=false&disableCache=false&skipDelivery=Y&sort=rank"
+        f"&tab=LibraryCatalog&inst={PRIMO_INST}&rapido=false&refEntryActive=false&rtaLinks=true"
+        f"&qInclude=&qExclude=&multiFacets=&q={q}&isCDSearch=false&lang=zh-tw&vid={PRIMO_VID}"
+    )
+
+
+def _first(values: list | None) -> str:
+    if not values:
+        return ""
+    v = str(values[0])
+    # Primo 欄位常帶 "$$Q..." 之類的內部標記，取乾淨前段
+    return v.split("$$")[0].strip()
+
+
+def _parse_docs(data: dict, top_k: int) -> list[dict[str, str]]:
+    docs = data.get("docs", [])
+    results: list[dict[str, str]] = []
+    for doc in docs:
+        display = doc.get("pnx", {}).get("display", {})
+        control = doc.get("pnx", {}).get("control", {})
+        title = _first(display.get("title"))
+        if not title:
+            continue
+        author = _first(display.get("creator")) or _first(display.get("contributor"))
+        date = _first(display.get("creationdate"))
+        publisher = _first(display.get("publisher"))
+        record_id = _first(control.get("recordid")) or doc.get("pnxId", "")
+        link = (
+            f"{PRIMO_BASE}/discovery/fulldisplay?docid={urllib.parse.quote(str(record_id))}"
+            f"&vid={PRIMO_VID}&lang=zh-tw"
+            if record_id
+            else f"{PRIMO_BASE}/nde/home?vid={PRIMO_VID}"
+        )
+        results.append(
+            {"title": title, "author": author, "date": date, "publisher": publisher, "link": link}
+        )
+        if len(results) >= top_k:
+            break
+    return results
+
+
+def _format_results(results: list[dict[str, str]]) -> str:
+    lines = []
+    for i, r in enumerate(results):
+        meta = "，".join(x for x in [r["author"], r["publisher"], r["date"]] if x)
+        lines.append(f"{i + 1}. {r['title']}（{meta}） - {r['link']}")
+    return "\n".join(lines)
+
+
+def _raise_for_response(resp: httpx.Response, query: str) -> dict:
+    if resp.status_code == 403:
+        raise NCLCrawlerAccessDeniedError(
+            "聯合目錄服務拒絕存取（403）。請改用其他資料來源回答，並告知使用者館藏查詢暫時無法使用。"
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("docs"):
+        raise NCLCrawlerSearchNoResultsError(
+            f"No results found for query: {query}. Please try again with a different query."
+        )
+    return data
+
+
 class BaseNCLSearch(BaseModel):
-    """Base class for NCL search tools, containing shared configurations and utilities.
+    """NBINet 聯合目錄查詢的共用設定。
 
     Attributes:
-        top_k_results (int): The maximum number of search results to retrieve (default: 10, min: 1, max: 20).
-        cookie_timeout (int): The timeout in milliseconds for retrieving the session cookie (default: 10000).
-        search_timeout (int): The timeout in milliseconds for waiting for search results (default: 15000).
+        top_k_results (int): 最多回傳幾筆（預設 10，1–20）。
+        search_timeout (int): 查詢逾時（毫秒，預設 15000）。
     """
 
     top_k_results: int = Field(default=10, ge=1, le=20)
+    # 保留欄位名以維持相容；cookie_timeout 於新實作無作用
     cookie_timeout: int = Field(default=10000)
     search_timeout: int = Field(default=15000)
 
-    def _encode_query(self, query: str) -> str:
-        return urllib.parse.quote(query)
-
 
 class NCLSearch(BaseNCLSearch):
-    """A synchronous search tool for the National Central Library (NCL) catalog."""
-
-    def _process_workflow(self, query: str) -> list[dict[str, str]]:
-        with sync_playwright() as p:
-            # TODO(youkwan): Find a better way to fetch cookies other than Playwright.
-            # Playwright relies on too many dependencies which is too heavy for this use case.
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
-            page = context.new_page()
-
-            page.route(
-                "**/*",
-                lambda route: (
-                    route.abort()
-                    if route.request.resource_type in ["image", "stylesheet", "font", "media"]
-                    or "google-analytics.com" in route.request.url
-                    else route.continue_()
-                ),
-            )
-            session_id = self._get_session_id(context, page)
-            results = self._search_ncl_results(query, session_id, page)
-            return results
-
-    def _get_session_id(self, context: BrowserContext, page: Page) -> str:
-        page.goto(NCL_ENTRY_URL)
-        try:
-            page.wait_for_function("() => document.cookie.includes('ALEPH_SESSION_ID')", timeout=self.cookie_timeout)
-        except TimeoutError as e:
-            raise NCLCrawlerCookieTimeoutError(
-                f"Timeout while getting cookie, exceeded cookie_timeout parameter({self.cookie_timeout}ms). "
-                f"Please try increasing the cookie_timeout parameter."
-            ) from e
-
-        all_cookies = context.cookies()
-
-        for cookie in all_cookies:
-            if cookie["name"] == "ALEPH_SESSION_ID":
-                return cookie["value"]
-        raise NCLCrawlerSessionIdNotFoundError(
-            f"Could not find session ID in {NCL_ENTRY_URL} cookies. Please try again."
-        )
-
-    def _search_ncl_results(self, query: str, session_id: str, page: Page) -> list[dict[str, str]]:
-        encoded_query = self._encode_query(query)
-
-        try:
-            page.goto(
-                f"{NCL_ENTRY_URL}/{session_id}?func=find-b&request={encoded_query}&find_code=WTI&adjacent=Y&local_base=&x=0&y=0&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WMY&filter_request_4=&filter_code_5=WSL&filter_request_5="
-            )
-            page.wait_for_selector('tr[valign="baseline"] td:nth-child(3) a.brieftit', timeout=self.search_timeout)
-        except TimeoutError as e:
-            raise NCLCrawlerSearchTimeoutError(
-                f"Timeout while searching for results, exceeded search_timeout parameter({self.search_timeout}ms). "
-                f"Please try increasing the search_timeout parameter."
-            ) from e
-
-        result_rows_locator = page.locator('tr[valign="baseline"]')
-        num_rows = result_rows_locator.count()
-        if num_rows <= 0:
-            raise NCLCrawlerSearchNoResultsError(
-                f"No results found for query: {query}. Please try again with a different query."
-            )
-
-        results = []
-        count = 0
-
-        for i in range(num_rows):
-            row_locator = result_rows_locator.nth(i)
-            title_link_locator = row_locator.locator("td:nth-child(3) a.brieftit")
-
-            book_title = None
-            book_link = None
-
-            if title_link_locator.count() > 0:
-                book_title = title_link_locator.text_content()
-                book_link = title_link_locator.get_attribute("href")
-
-            author_locator = row_locator.locator("td:nth-child(4)")
-            author = author_locator.text_content()
-
-            if book_title:
-                book_title = book_title.strip()
-            if book_link:
-                if not book_link.startswith("http"):
-                    book_link = page.url.split("/F/")[0] + book_link
-                book_link = book_link.strip()
-            if author:
-                author = author.strip()
-
-            if book_title and book_link:
-                results.append({"title": book_title, "author": author, "link": book_link})
-                count += 1
-                if count >= self.top_k_results:
-                    break
-        return results
+    """同步版聯合目錄查詢。"""
 
     def run(self, query: str) -> str:
-        results = self._process_workflow(query)
-        return "\n".join(
-            [f"{i + 1}. {result['title']} ({result['author']}) - {result['link']}" for i, result in enumerate(results)]
-        )
+        _throttle_sync()
+        url = _search_url(query, self.top_k_results)
+        try:
+            with httpx.Client(timeout=self.search_timeout / 1000) as client:
+                resp = client.get(url, headers={"User-Agent": USER_AGENT})
+        except httpx.TimeoutException as e:
+            raise NCLCrawlerSearchTimeoutError(
+                f"Timeout while searching, exceeded search_timeout({self.search_timeout}ms)."
+            ) from e
+        data = _raise_for_response(resp, query)
+        return _format_results(_parse_docs(data, self.top_k_results))
 
 
 class AsyncNCLSearch(BaseNCLSearch):
-    """An asynchronous search tool for the National Central Library (NCL) catalog."""
+    """非同步版聯合目錄查詢。"""
 
     async def arun(self, query: str) -> str:
-        results = await self._aprocess_workflow(query)
-        return "\n".join(
-            [f"{i + 1}. {result['title']} ({result['author']}) - {result['link']}" for i, result in enumerate(results)]
-        )
-
-    async def _aprocess_workflow(self, query: str) -> list[dict[str, str]]:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context()
-            page = await context.new_page()
-
-            await page.route(
-                "**/*",
-                lambda route: (
-                    route.abort()
-                    if route.request.resource_type in ["image", "stylesheet", "font", "media"]
-                    or "google-analytics.com" in route.request.url
-                    else route.continue_()
-                ),
-            )
-            try:
-                session_id = await self._aget_session_id(context, page)
-                results = await self._asearch_ncl_results(query, session_id, page)
-                return results
-            finally:
-                await browser.close()
-
-    async def _aget_session_id(self, context: AsyncBrowserContext, page: AsyncPage) -> str:
-        await page.goto(NCL_ENTRY_URL)
+        await _throttle_async()
+        url = _search_url(query, self.top_k_results)
         try:
-            await page.wait_for_function(
-                "() => document.cookie.includes('ALEPH_SESSION_ID')", timeout=self.cookie_timeout
-            )
-        except AsyncTimeoutError as e:
-            raise NCLCrawlerCookieTimeoutError(
-                f"Timeout while getting cookie, exceeded cookie_timeout parameter({self.cookie_timeout}ms). "
-                f"Please try increasing the cookie_timeout parameter."
-            ) from e
-
-        all_cookies = await context.cookies()
-
-        for cookie in all_cookies:
-            if cookie["name"] == "ALEPH_SESSION_ID":
-                return cookie["value"]
-        raise NCLCrawlerSessionIdNotFoundError(
-            f"Could not find session ID in {NCL_ENTRY_URL} cookies. Please try again."
-        )
-
-    async def _asearch_ncl_results(self, query: str, session_id: str, page: AsyncPage) -> list[dict[str, str]]:
-        encoded_query = self._encode_query(query)
-
-        try:
-            await page.goto(
-                f"{NCL_ENTRY_URL}/{session_id}?func=find-b&request={encoded_query}&find_code=WTI&adjacent=Y&local_base=&x=0&y=0&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WMY&filter_request_4=&filter_code_5=WSL&filter_request_5="
-            )
-            await page.wait_for_selector(
-                'tr[valign="baseline"] td:nth-child(3) a.brieftit', timeout=self.search_timeout
-            )
-        except AsyncTimeoutError as e:
+            async with httpx.AsyncClient(timeout=self.search_timeout / 1000) as client:
+                resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+        except httpx.TimeoutException as e:
             raise NCLCrawlerSearchTimeoutError(
-                f"Timeout while searching for results, exceeded search_timeout parameter({self.search_timeout}ms). "
-                f"Please try increasing the search_timeout parameter."
+                f"Timeout while searching, exceeded search_timeout({self.search_timeout}ms)."
             ) from e
-
-        result_rows_locator = page.locator('tr[valign="baseline"]')
-        num_rows = await result_rows_locator.count()
-        if num_rows <= 0:
-            raise NCLCrawlerSearchNoResultsError(
-                f"No results found for query: {query}. Please try again with a different query."
-            )
-
-        results = []
-        count = 0
-
-        for i in range(num_rows):
-            row_locator = result_rows_locator.nth(i)
-            title_link_locator = row_locator.locator("td:nth-child(3) a.brieftit")
-
-            book_title = None
-            book_link = None
-
-            if await title_link_locator.count() > 0:
-                book_title = await title_link_locator.text_content()
-                book_link = await title_link_locator.get_attribute("href")
-
-            author_locator = row_locator.locator("td:nth-child(4)")
-            author = await author_locator.text_content()
-
-            if book_title:
-                book_title = book_title.strip()
-            if book_link:
-                if not book_link.startswith("http"):
-                    book_link = page.url.split("/F/")[0] + book_link
-                book_link = book_link.strip()
-            if author:
-                author = author.strip()
-
-            if book_title and book_link:
-                results.append({"title": book_title, "author": author, "link": book_link})
-                count += 1
-                if count >= self.top_k_results:
-                    break
-        return results
+        data = _raise_for_response(resp, query)
+        return _format_results(_parse_docs(data, self.top_k_results))

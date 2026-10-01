@@ -1,5 +1,3 @@
-// ops: backend base url comes from VITE_API_URL when set
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 import { useState, useRef } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -13,6 +11,9 @@ type APIConfig = {
   currentModel: string;
   onEmotion?: (emotion: string) => void; // 將情緒token加入型別
 };
+
+// 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 export default function useLLMStream({
   systemPrompt,
@@ -63,7 +64,7 @@ export default function useLLMStream({
   const requestFollowUps = async (answer: string) => {
     try {
 
-      const res = await fetch(`${API_BASE_URL}/v2/react/run`, {
+      const res = await fetch(`${API_BASE}/v2/react/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -151,7 +152,7 @@ export default function useLLMStream({
 
       // 開 SSE 請求
 
-      const response = await fetch(`${API_BASE_URL}/v2/react/stream`, {
+      const response = await fetch(`${API_BASE}/v2/react/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

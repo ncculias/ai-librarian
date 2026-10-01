@@ -28,7 +28,9 @@ services:
         - ai_librarian_net
       
       environment:
-        - VITE_API_URL=http://backend:8000
+        # 瀏覽器端要連的後端位址（不能用容器內部名稱 backend）。
+        # 本機開發用 localhost；AWS 部署時改為對外的後端網址
+        - VITE_API_URL=http://localhost:8000
 
 networks:
   ai_librarian_net:

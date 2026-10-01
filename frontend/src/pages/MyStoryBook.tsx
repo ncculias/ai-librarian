@@ -15,8 +15,8 @@ import {
   Image as ImageIcon,
   MessageCircleMore,
 } from "lucide-react";
-// 直接打 localhost:8000（與 useLLMStream.ts 相同；瀏覽器連得到後端發佈的埠）
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 /**
  * 「我的故事書」：上傳照片 → AI 看圖寫故事 → 翻頁電子書

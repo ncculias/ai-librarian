@@ -27,9 +27,10 @@ class NCLSearchRun(BaseTool):
 
     name: str = "ncl_search"
     description: str = (
-        "A tool for searching the Taiwan National Central Library(NCL, 國家圖書館) catalog."
-        "The search results are returned in a string, containing the title, author, and link of the book."
-        "The title and author are returned in the same language as the query, and the link is the URL of the book."
+        "A tool for searching NBINet（全國圖書書目資訊網）, the Taiwan national union catalog "
+        "hosted by the National Central Library(NCL, 國家圖書館), covering holdings of libraries nationwide."
+        "The search results are returned in a string, containing the title, author, publisher, year and link."
+        "Use the returned fields verbatim; the link opens the full catalog record."
     )
     ncl_search: NCLSearch = Field(default_factory=NCLSearch)
     async_ncl_search: AsyncNCLSearch = Field(default_factory=AsyncNCLSearch)
