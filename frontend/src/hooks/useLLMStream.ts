@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -15,6 +15,16 @@ type APIConfig = {
 // 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
+// 換頁保留（與 MyStoryBook 的 bookSession 同一套路）：
+// 對話記憶以前端歷史為準，所以保住訊息列表＝保住上下文；重新整理才歸零。
+const chatSession: {
+  messages: Message[];
+  followUpQuestions: string[];
+} = {
+  messages: [],
+  followUpQuestions: [],
+};
+
 export default function useLLMStream({
   systemPrompt,
   temperature,
@@ -22,10 +32,20 @@ export default function useLLMStream({
   currentModel,
   onEmotion,
 }: APIConfig) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(chatSession.messages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>(
+    chatSession.followUpQuestions
+  );
+
+  // 狀態變動時回寫 chatSession，換頁卸載後再掛載就能原樣還原
+  useEffect(() => {
+    chatSession.messages = messages;
+  }, [messages]);
+  useEffect(() => {
+    chatSession.followUpQuestions = followUpQuestions;
+  }, [followUpQuestions]);
   // 等待中的狀態文字（顯示在「三點思考泡泡」裡）；null = 沒有等待泡泡
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
 
