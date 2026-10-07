@@ -2,6 +2,7 @@ import type { ElementType } from "react";
 import { useState, useEffect } from "react";
 
 import { mcpTools, type Tool } from "../data/mcpTools";
+import { exportChat } from "../utils/exportChat";
 import {
   Clock,
   FlaskConical,
@@ -14,6 +15,7 @@ import {
   Settings,
   Maximize2,
   Minimize2,
+  Download,
   Play,
   Square,
   SlidersHorizontal,
@@ -299,6 +301,23 @@ export default function Librarian() {
     setVoiceStatus("playing");
   };
 
+  /* 下載對話（spec：docs/2026-10-07_下載對話_spec.md）：
+     訪談研究用——學生陪長輩聊完，當場把對話存成 txt/csv 帶走分析 */
+  const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
+  const downloadChat = (format: "txt" | "csv") => {
+    exportChat(format, {
+      page: "聊天問答",
+      info: [
+        ["AI 人設", personaLabel || "一般"],
+        ["模型", currentModel],
+      ],
+      speakers: { user: "使用者", assistant: "AI 館員" },
+      messages,
+      filePrefix: "AI館員對話",
+    });
+    setIsDownloadMenuOpen(false);
+  };
+
   const stopVoice = () => {
     if (!("speechSynthesis" in window)) return;
     // Chrome 已知 bug：引擎在 paused 狀態下 cancel() 會被無視、聲音停不下來，
@@ -349,6 +368,61 @@ export default function Librarian() {
           </div>
 
           <div className="flex items-center gap-2">
+            {messages.length > 0 && (
+              <div className="relative">
+                <Popover
+                  content={
+                    <div>
+                      <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
+                        下載對話
+                      </p>
+                      <p>把這次的對話存成檔案（文字檔或表格檔）。</p>
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={() => setIsDownloadMenuOpen((open) => !open)}
+                    className="theme-icon-button rounded-lg p-2"
+                    aria-label="下載對話"
+                  >
+                    <Download className="h-5 w-5" />
+                  </button>
+                </Popover>
+                {isDownloadMenuOpen && (
+                  <>
+                    {/* 點選單外任何地方收起選單 */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setIsDownloadMenuOpen(false)}
+                    />
+                    <div className="theme-modal absolute right-0 top-full z-20 mt-2 w-48 rounded-xl p-2">
+                      <button
+                        type="button"
+                        onClick={() => downloadChat("txt")}
+                        className="w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--color-accent-soft)]"
+                      >
+                        文字檔（.txt）
+                        <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">
+                          可貼進 Word 逐句整理
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadChat("csv")}
+                        className="w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--color-accent-soft)]"
+                      >
+                        表格檔（.csv）
+                        <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">
+                          Excel 直接開、適合統計
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <Popover
               content={
                 <div>

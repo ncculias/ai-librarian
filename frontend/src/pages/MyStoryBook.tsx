@@ -14,7 +14,10 @@ import {
   Palette,
   Image as ImageIcon,
   MessageCircleMore,
+  Download,
 } from "lucide-react";
+import { exportChat } from "../utils/exportChat";
+
 // 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -655,7 +658,8 @@ function BookStep({
   }, [cur, total, setPage]);
 
   /* ---- 繪本回憶問答：AI 引導長輩聊這本書（詳見 docs/2026-09-11 規劃書）---- */
-  type ChatMsg = { role: "user" | "assistant"; content: string };
+  // ts：訊息產生時間（下載對話用，可算回應延遲）
+  type ChatMsg = { role: "user" | "assistant"; content: string; ts?: number };
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -696,15 +700,41 @@ function BookStep({
     [screens, photos, story]
   );
 
+  /* 下載對話（spec：docs/2026-10-07_下載對話_spec.md）：
+     檔案含故事全文＋陪聊對話，學生研究「長輩對 AI 故事的反應」時對得起來 */
+  const [dlMenuOpen, setDlMenuOpen] = useState(false);
+  const downloadBookChat = (format: "txt" | "csv") => {
+    const storyText = [
+      "═══ 故事全文 ═══",
+      `《${story.title}》${story.subtitle ? `——${story.subtitle}` : ""}`,
+      ...story.pages.map(
+        (pg, i) => `第 ${i + 1} 頁〈${pg.heading}〉\n${pg.text}`
+      ),
+      `結語：${story.closing ?? STORY_ENDING_FALLBACK}`,
+    ].join("\n\n");
+    exportChat(format, {
+      page: "繪本陪聊",
+      info: [
+        ["故事標題", story.title],
+        ["故事頁數", `${story.pages.length} 頁`],
+      ],
+      speakers: { user: "使用者", assistant: "AI" },
+      messages: chatMsgs,
+      preamble: storyText,
+      filePrefix: "繪本對話",
+    });
+    setDlMenuOpen(false);
+  };
+
   const openChat = () => {
     setChatOpen(true);
     if (chatMsgs.length > 0 || chatLoading) return;
     // 第一次打開：請 AI 先開口
     setChatLoading(true);
     chatCall([])
-      .then((reply) => setChatMsgs([{ role: "assistant", content: reply }]))
+      .then((reply) => setChatMsgs([{ role: "assistant", content: reply, ts: Date.now() }]))
       .catch(() =>
-        setChatMsgs([{ role: "assistant", content: "我在這裡陪你聊這本書，想從哪張照片聊起呢？" }])
+        setChatMsgs([{ role: "assistant", content: "我在這裡陪你聊這本書，想從哪張照片聊起呢？", ts: Date.now() }])
       )
       .finally(() => setChatLoading(false));
   };
@@ -712,16 +742,16 @@ function BookStep({
   const sendChat = () => {
     const text = chatInput.trim();
     if (!text || chatLoading) return;
-    const next: ChatMsg[] = [...chatMsgs, { role: "user", content: text }];
+    const next: ChatMsg[] = [...chatMsgs, { role: "user", content: text, ts: Date.now() }];
     setChatMsgs(next);
     setChatInput("");
     setChatLoading(true);
     chatCall(next)
-      .then((reply) => setChatMsgs((prev) => [...prev, { role: "assistant", content: reply }]))
+      .then((reply) => setChatMsgs((prev) => [...prev, { role: "assistant", content: reply, ts: Date.now() }]))
       .catch((e) =>
         setChatMsgs((prev) => [
           ...prev,
-          { role: "assistant", content: `（哎呀，剛剛沒聽清楚：${e instanceof Error ? e.message : "請再說一次"}）` },
+          { role: "assistant", content: `（哎呀，剛剛沒聽清楚：${e instanceof Error ? e.message : "請再說一次"}）`, ts: Date.now() },
         ])
       )
       .finally(() => setChatLoading(false));
@@ -870,6 +900,49 @@ function BookStep({
       {/* 回憶問答：AI 引導長輩聊這一頁的回憶 */}
       {chatOpen && (
         <div className="msb-chat card">
+          {chatMsgs.length > 0 && (
+            <div className="relative flex justify-end pb-1">
+              <button
+                type="button"
+                onClick={() => setDlMenuOpen((open) => !open)}
+                className="theme-icon-button flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm"
+                aria-label="下載對話"
+              >
+                <Download className="h-4 w-4" /> 下載對話
+              </button>
+              {dlMenuOpen && (
+                <>
+                  {/* 點選單外任何地方收起選單 */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setDlMenuOpen(false)}
+                  />
+                  <div className="theme-modal absolute right-0 top-full z-20 mt-1 w-48 rounded-xl p-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadBookChat("txt")}
+                      className="w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--color-accent-soft)]"
+                    >
+                      文字檔（.txt）
+                      <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">
+                        含故事全文＋對話
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadBookChat("csv")}
+                      className="w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--color-accent-soft)]"
+                    >
+                      表格檔（.csv）
+                      <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">
+                        Excel 直接開、適合統計
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div className="msb-chat-list">
             {chatMsgs.map((m, i) =>
               m.role === "assistant" ? (
