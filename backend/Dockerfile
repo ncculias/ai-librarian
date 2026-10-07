@@ -13,8 +13,6 @@ COPY ai_librarian_monorepo/ai_librarian_core/pyproject.toml ./ai_librarian_monor
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-workspace
 
-RUN .venv/bin/playwright install --with-deps
-
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/uv \

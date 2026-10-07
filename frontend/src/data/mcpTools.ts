@@ -71,5 +71,5 @@ export const toolZhDesc: Record<string, string> = {
   google_search: "Google 搜尋，適合查時事。",
   google_books: "Google Books 搜尋工具，可依主題找書並產生推薦。",
   open_weather_map:
-    "OpenWeatherMap，可以取得指定地點的即時天氣。輸入方式為地點字串（如 London,GB）。",
+    "Open-Meteo 開放天氣服務（免金鑰），可查指定城市的即時天氣與今日預報。輸入城市名稱（中文或英文皆可）。",
 };
