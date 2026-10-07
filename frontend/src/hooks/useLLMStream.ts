@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
-type Message = { role: "user" | "assistant"; content: string };
+// ts：訊息產生時間（下載對話的研究需求——可算回應延遲與對話時長）
+type Message = { role: "user" | "assistant"; content: string; ts?: number };
 
 type APIMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -149,7 +150,7 @@ export default function useLLMStream({
     inFlightRef.current = true;
 
     // 先插入使用者訊息
-    const userMsg: Message = { role: "user", content: text };
+    const userMsg: Message = { role: "user", content: text, ts: Date.now() };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
@@ -268,7 +269,7 @@ export default function useLLMStream({
 
                 setMessages((prev) => [
                   ...prev,
-                  { role: "assistant", content: chunk },
+                  { role: "assistant", content: chunk, ts: Date.now() },
                 ]);
               }
               break;
@@ -318,7 +319,7 @@ export default function useLLMStream({
       const msg = /[一-鿿]/.test(raw)
         ? raw
         : "系統錯誤，請確認網路或稍後再試";
-      setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: msg, ts: Date.now() }]);
       setLoading(false);
       setPendingStatus(null);
     } finally {
