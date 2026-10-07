@@ -16,7 +16,6 @@ dependencies = [
     "langsmith>=0.3.42",
     "lxml>=6.0.0",
     "pydantic>=2.11.5",
-    "pyowm>=3.3.0",
     "setuptools>=80.9.0", # PyOWM requires setuptools
     "wikipedia>=1.4.0",
     "youtube-search>=2.1.2",
