@@ -28,6 +28,14 @@ import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
 import ConfigModal from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
+import {
+  DEFAULT_CHARACTER_VIEW,
+  DEFAULT_LAYOUT_MODE,
+  parseCharacterView,
+  parseLayoutMode,
+  type CharacterView,
+  type LayoutMode,
+} from "../components/live2d/display";
 import { API_BASE } from "../hooks/useLLMStream";
 import Popover from "../components/Popover";
 import Toast from "../components/Toast";
@@ -138,6 +146,10 @@ export default function Librarian() {
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
+  const [characterView, setCharacterView] = useState<CharacterView>(
+    DEFAULT_CHARACTER_VIEW,
+  );
+  const [layout, setLayout] = useState<LayoutMode>(DEFAULT_LAYOUT_MODE);
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [chatMode, setChatMode] =
     useState<(typeof chatModes)[number]["id"]>("general");
@@ -183,6 +195,8 @@ export default function Librarian() {
     temperature: number;
     maxTokens: number;
     motionSpeed: number;
+    characterView: CharacterView;
+    layout: LayoutMode;
     persona: string;
     personaModules: PersonaModuleSet;
   }) => {
@@ -194,6 +208,11 @@ export default function Librarian() {
     setTemperature(t);
     setMaxTokens(m);
     setMotionSpeed(s);
+    // 以 parse 正規化,避免不合法值寫入 state 與 localStorage
+    const cv = parseCharacterView(draft.characterView);
+    const lm = parseLayoutMode(draft.layout);
+    setCharacterView(cv);
+    setLayout(lm);
     setPersona(draft.persona as PersonaId);
     setPersonaModules(draft.personaModules);
 
@@ -204,6 +223,8 @@ export default function Librarian() {
         temperature: t,
         maxTokens: m,
         motionSpeed: s,
+        characterView: cv,
+        layout: lm,
         model: currentModel,
         persona: draft.persona,
       }),
@@ -226,6 +247,9 @@ export default function Librarian() {
       if (typeof saved.maxTokens === "number") setMaxTokens(saved.maxTokens);
       if (typeof saved.motionSpeed === "number")
         setMotionSpeed(Math.min(2.5, Math.max(0.5, saved.motionSpeed)));
+      // 人物顯示 / 版面:不合法或缺漏的值由 parse 退回預設
+      setCharacterView(parseCharacterView(saved.characterView));
+      setLayout(parseLayoutMode(saved.layout));
       // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，落回新預設
       if (
         typeof saved.model === "string" &&
@@ -466,6 +490,8 @@ export default function Librarian() {
           emotionToken={emotionToken}
           paused={isConfigOpen}
           motionSpeed={motionSpeed}
+          characterView={characterView}
+          layout={layout}
         />
       )}
 
@@ -677,6 +703,8 @@ export default function Librarian() {
               temperature,
               maxTokens,
               motionSpeed,
+              characterView,
+              layout,
               persona,
               personaModules,
             }}

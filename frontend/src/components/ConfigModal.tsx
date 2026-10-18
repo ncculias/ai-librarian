@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ElementType } from "react";
+import type { CharacterView, LayoutMode } from "./live2d/display";
 import {
   DEFAULT_SYSTEM_PROMPT,
   MODULE_META,
@@ -52,6 +53,8 @@ export type ConfigDraft = {
   temperature: number;
   maxTokens: number;
   motionSpeed: number; // 角色動作速度倍率(1 = 原速);目前只影響顏如玉
+  characterView: CharacterView; // 人物顯示:全身 / 半身
+  layout: LayoutMode; // 版面:左右並排 / 上下(人物在後)
   persona: string;
   personaModules: PersonaModuleSet;
 };
@@ -442,6 +445,50 @@ export default function ConfigModal({
             }
             className="mb-2 w-full"
           />
+          {(
+            [
+              {
+                key: "characterView",
+                label: "人物顯示",
+                options: [
+                  { id: "full", label: "全身" },
+                  { id: "half", label: "半身" },
+                ],
+              },
+              {
+                key: "layout",
+                label: "版面",
+                options: [
+                  { id: "side", label: "左右並排" },
+                  { id: "stacked", label: "上下（人物在後）" },
+                ],
+              },
+            ] as const
+          ).map((group) => (
+            <div key={group.key}>
+              <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+                {group.label}
+              </label>
+              <div className="mb-2 flex gap-2">
+                {group.options.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() =>
+                      setDraft((d) => ({ ...d, [group.key]: o.id }))
+                    }
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                      draft[group.key] === o.id
+                        ? "border-[var(--color-accent-strong)] bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
+                        : "border-[var(--color-border)] text-[var(--color-text-muted)]"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </details>
 
         <div className="mt-6 flex justify-end gap-3">

@@ -7,11 +7,13 @@ import {
   shouldApply,
 } from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
+import type { CharacterView } from "./live2d/display";
 
 // Live2DPanel 輸入參數
 type Props = {
   modelUrl: string; // Live2D 模型 JSON 路徑
   motionSpeed?: number; // 動作速度倍率(1 = 原速);目前只套用在顏如玉
+  characterView?: CharacterView; // 人物顯示:全身 / 半身(預設 full)
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
   paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）

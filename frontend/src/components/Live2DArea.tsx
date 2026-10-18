@@ -5,6 +5,11 @@ import {
   isYanruyuUrl,
   readYanruyuEnv,
 } from "./live2d/yanruyu";
+import {
+  DEFAULT_CHARACTER_VIEW,
+  type CharacterView,
+  type LayoutMode,
+} from "./live2d/display";
 
 type Live2DInfo = {
   name: string;
@@ -18,6 +23,8 @@ type Props = {
   emotionToken: string | null;
   paused?: boolean;
   motionSpeed?: number; // 動作速度倍率,轉交給 Live2DPanel
+  characterView?: CharacterView; // 人物顯示:全身 / 半身,轉交給 Live2DPanel
+  layout?: LayoutMode; // 版面:左右並排 / 上下(人物在後)
 };
 
 // 從候選清單挑第一個 .model3.json;沒有就退而求其次
@@ -32,6 +39,7 @@ export default function Live2DArea({
   emotionToken,
   paused = false,
   motionSpeed = 1,
+  characterView = DEFAULT_CHARACTER_VIEW,
 }: Props) {
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
   const [yanruyuSupport, setYanruyuSupport] = useState<
@@ -128,6 +136,7 @@ export default function Live2DArea({
             emotionToken={emotionToken ?? undefined}
             paused={paused}
             motionSpeed={motionSpeed}
+            characterView={characterView}
             onLoadError={handleLoadError}
           />
         )}
