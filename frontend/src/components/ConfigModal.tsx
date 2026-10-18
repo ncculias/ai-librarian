@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 import type { ElementType } from "react";
 import type { CharacterView, LayoutMode } from "./live2d/display";
+import type { ChatPage } from "../pages/chatPage";
+import { availableModels } from "../data/models";
 import {
-  BOOK_GUIDE_INSTRUCTION,
+  DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   MODULE_META,
   assemblePersona,
@@ -51,7 +53,6 @@ const moduleIcons: Record<string, ElementType> = {
 
 export type ConfigDraft = {
   systemPrompt: string;
-  bookGuidePrompt: string; // 書籍介紹模式附加指令
   temperature: number;
   maxTokens: number;
   motionSpeed: number; // 角色動作速度倍率(1 = 原速);目前只影響顏如玉
@@ -59,9 +60,12 @@ export type ConfigDraft = {
   layout: LayoutMode; // 版面:左右並排 / 上下(人物在後)
   persona: string;
   personaModules: PersonaModuleSet;
+  model: string; // 該頁使用的模型(聊天問答與書籍介紹各自獨立)
 };
 
 type ConfigModalProps = {
+  /** 目前所在的頁：決定系統提示詞與模型是哪一頁的 */
+  page: ChatPage;
   /** 開窗當下的現值：進來後即為草稿，關窗不儲存就丟棄 */
   initial: ConfigDraft;
   personaOptions: readonly PersonaOption[];
@@ -83,6 +87,7 @@ function SectionTitle({ no, text }: { no: string; text: string }) {
 }
 
 export default function ConfigModal({
+  page,
   initial,
   personaOptions,
   onClose,
@@ -179,43 +184,36 @@ export default function ConfigModal({
           只影響這台裝置；按「儲存並套用」才會生效，取消則不保留修改。
         </p>
 
-        <SectionTitle no="1" text="共通系統提示詞" />
+        <SectionTitle
+          no="1"
+          text={page === "book-guide" ? "系統提示詞（書籍介紹）" : "系統提示詞（聊天問答）"}
+        />
         <textarea
           value={draft.systemPrompt}
           onChange={(e) => setDraft((d) => ({ ...d, systemPrompt: e.target.value }))}
           rows={5}
-          placeholder="所有人設共用的基本指令"
+          placeholder="這一頁所有人設共用的基本指令"
           className="theme-input w-full resize-none rounded-lg px-3 py-2 text-sm"
         />
         <div className="mt-1 flex justify-end">
           <button
             type="button"
-            onClick={() => setDraft((d) => ({ ...d, systemPrompt: DEFAULT_SYSTEM_PROMPT }))}
+            onClick={() =>
+              setDraft((d) => ({
+                ...d,
+                systemPrompt:
+                  page === "book-guide"
+                    ? DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT
+                    : DEFAULT_SYSTEM_PROMPT,
+              }))
+            }
             className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]"
           >
             <RotateCcw className="h-3 w-3" /> 還原預設
           </button>
         </div>
 
-        <SectionTitle no="2" text="書籍介紹模式指令" />
-        <textarea
-          value={draft.bookGuidePrompt}
-          onChange={(e) => setDraft((d) => ({ ...d, bookGuidePrompt: e.target.value }))}
-          rows={4}
-          placeholder="切到書籍介紹模式時會附加在最後的指令"
-          className="theme-input w-full resize-none rounded-lg px-3 py-2 text-sm"
-        />
-        <div className="mt-1 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setDraft((d) => ({ ...d, bookGuidePrompt: BOOK_GUIDE_INSTRUCTION }))}
-            className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]"
-          >
-            <RotateCcw className="h-3 w-3" /> 還原預設
-          </button>
-        </div>
-
-        <SectionTitle no="3" text="角色模組" />
+        <SectionTitle no="2" text="角色模組" />
         <div className="space-y-2">
           {personaOptions.map((p) => {
             const Icon = personaIcons[p.id];
@@ -360,7 +358,7 @@ export default function ConfigModal({
           </div>
         )}
 
-        <SectionTitle no="4" text="Prompt 組裝預覽" />
+        <SectionTitle no="3" text="Prompt 組裝預覽" />
         <div className="mb-2 flex gap-2">
           {(
             [
@@ -383,14 +381,9 @@ export default function ConfigModal({
           ))}
         </div>
         {previewMode === "single" ? (
-          <>
-            <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
-              {assembled || "（目前沒有任何系統指令）"}
-            </pre>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              書籍介紹模式下，送出時會再附加上方第 2 區的指令。
-            </p>
-          </>
+          <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+            {assembled || "（目前沒有任何系統指令）"}
+          </pre>
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {personaOptions
@@ -420,6 +413,23 @@ export default function ConfigModal({
             進階參數
           </summary>
           <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+            模型{" "}
+            <span className="text-[var(--color-text-muted)]">
+              (只影響{page === "book-guide" ? "書籍介紹" : "聊天問答"}頁)
+            </span>
+          </label>
+          <select
+            value={draft.model}
+            onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+            className="theme-input mb-3 w-full rounded-lg px-3 py-2 text-sm"
+          >
+            {availableModels.map((m) => (
+              <option key={m} value={m}>
+                {m.replace(/^openai:/, "")}
+              </option>
+            ))}
+          </select>
+          <label className="mb-1 block text-sm text-[var(--color-text-secondary)]">
             Temperature{" "}
             <span className="text-[var(--color-text-muted)]">
               (數值越高，回答越有創意)

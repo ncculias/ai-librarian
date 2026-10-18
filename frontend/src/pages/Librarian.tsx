@@ -53,9 +53,9 @@ import useLLMStream, {
   DEFAULT_GREETING,
 } from "../hooks/useLLMStream";
 import type { ChatPage } from "./chatPage";
-import { availableModels, defaultModel } from "../data/models";
+import { defaultModel, normalizeModel } from "../data/models";
 import {
-  BOOK_GUIDE_INSTRUCTION,
+  DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   assemblePersona,
   defaultPersonaModules,
@@ -131,9 +131,15 @@ export default function Librarian({ page }: { page: ChatPage }) {
     text: string;
     variant?: "success" | "error";
   } | null>(null);
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
-  // 書籍介紹模式指令：出廠值在 data/personaModules.ts，使用者修改存於 aiConfig
-  const [bookGuidePrompt, setBookGuidePrompt] = useState(BOOK_GUIDE_INSTRUCTION);
+  // 系統提示詞與模型各頁獨立（出廠值依頁、存於 aiConfig 的各頁 key），其餘設定兩頁共用
+  const pageDefaults = isBookGuide
+    ? {
+        prompt: DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT,
+        promptKey: "bookGuideSystemPrompt",
+        modelKey: "bookGuideModel",
+      }
+    : { prompt: DEFAULT_SYSTEM_PROMPT, promptKey: "systemPrompt", modelKey: "model" };
+  const [systemPrompt, setSystemPrompt] = useState(pageDefaults.prompt);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
@@ -197,7 +203,11 @@ export default function Librarian({ page }: { page: ChatPage }) {
     const m = Math.max(1, Math.floor(Number(draft.maxTokens) || 1));
     const s = Math.min(2.5, Math.max(0.5, Number(draft.motionSpeed) || 1));
 
-    setSystemPrompt(draft.systemPrompt);
+    // 空白或非字串一律落回該頁出廠值,state 與 localStorage 同步存正規化後的值
+    const p = normalizePrompt(draft.systemPrompt, pageDefaults.prompt);
+    const md = normalizeModel(draft.model);
+    setSystemPrompt(p);
+    setCurrentModel(md);
     setTemperature(t);
     setMaxTokens(m);
     setMotionSpeed(s);
@@ -208,22 +218,27 @@ export default function Librarian({ page }: { page: ChatPage }) {
     setLayout(lm);
     setPersona(draft.persona as PersonaId);
     setPersonaModules(draft.personaModules);
-    // 空白或非字串一律落回出廠值,state 與 localStorage 同步存正規化後的值
-    const bg = normalizePrompt(draft.bookGuidePrompt, BOOK_GUIDE_INSTRUCTION);
-    setBookGuidePrompt(bg);
 
+    // 合併寫回：先讀現有 aiConfig，只覆蓋本頁的兩個 key 與共用欄位，不動另一頁的 key
+    let existing: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(localStorage.getItem("aiConfig") ?? "null");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) existing = parsed;
+    } catch {
+      // 壞掉的舊資料視為空,由本次儲存重建
+    }
     localStorage.setItem(
       "aiConfig",
       JSON.stringify({
-        systemPrompt: draft.systemPrompt,
+        ...existing,
+        [pageDefaults.promptKey]: p,
+        [pageDefaults.modelKey]: md,
         temperature: t,
         maxTokens: m,
         motionSpeed: s,
         characterView: cv,
         layout: lm,
-        model: currentModel,
         persona: draft.persona,
-        bookGuidePrompt: bg,
       }),
     );
     localStorage.setItem("personaModules_v2", JSON.stringify(draft.personaModules));
@@ -237,45 +252,33 @@ export default function Librarian({ page }: { page: ChatPage }) {
       if (!raw) return;
       const saved = JSON.parse(raw);
 
-      if (typeof saved.systemPrompt === "string" && saved.systemPrompt.trim())
-        setSystemPrompt(saved.systemPrompt);
+      // 缺值或空白由 normalize 落回該頁出廠值
+      setSystemPrompt(normalizePrompt(saved[pageDefaults.promptKey], pageDefaults.prompt));
       if (typeof saved.temperature === "number")
         setTemperature(saved.temperature);
       if (typeof saved.maxTokens === "number") setMaxTokens(saved.maxTokens);
       if (typeof saved.motionSpeed === "number")
         setMotionSpeed(Math.min(2.5, Math.max(0.5, saved.motionSpeed)));
-      // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，落回新預設
-      if (
-        typeof saved.model === "string" &&
-        (availableModels as readonly string[]).includes(saved.model)
-      )
-        setCurrentModel(saved.model);
+      // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，normalize 落回新預設
+      setCurrentModel(normalizeModel(saved[pageDefaults.modelKey]));
       if (
         typeof saved.persona === "string" &&
         personaOptions.some((p) => p.id === saved.persona)
       )
         setPersona(saved.persona as PersonaId);
-      // 缺值或空白由 normalize 落回出廠值
-      setBookGuidePrompt(normalizePrompt(saved.bookGuidePrompt, BOOK_GUIDE_INSTRUCTION));
     } catch (_) {
       // 忽略錯誤，不讓 UI 中斷
     }
   }, []);
 
-  // 三層組裝：自訂提示詞 → 人設模組 → 模式指令（順序依 Prompt v1 第九章「工程端建議」）
+  // 兩層組裝：該頁系統提示詞 → 人設模組（書籍介紹的格式指令已併入該頁預設提示詞）
   const personaLabel =
     personaOptions.find((p) => p.id === persona)?.label ?? "";
   const personaPrompt =
     persona === "none"
       ? ""
       : assemblePersona(personaLabel, personaModules[persona]);
-  const modeSystemPrompt = [
-    systemPrompt,
-    personaPrompt,
-    isBookGuide ? bookGuidePrompt : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const modeSystemPrompt = [systemPrompt, personaPrompt].filter(Boolean).join("\n\n");
 
   const {
     messages,
@@ -724,10 +727,11 @@ export default function Librarian({ page }: { page: ChatPage }) {
 
         {isConfigOpen && (
           <ConfigModal
+            page={page}
             personaOptions={personaOptions}
             initial={{
               systemPrompt,
-              bookGuidePrompt,
+              model: currentModel,
               temperature,
               maxTokens,
               motionSpeed,
