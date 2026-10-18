@@ -16,6 +16,7 @@ import {
 import type { ElementType } from "react";
 import type { CharacterView, LayoutMode } from "./live2d/display";
 import {
+  DEFAULT_BOOK_GUIDE_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   MODULE_META,
   assemblePersona,
@@ -50,6 +51,7 @@ const moduleIcons: Record<string, ElementType> = {
 
 export type ConfigDraft = {
   systemPrompt: string;
+  bookGuidePrompt: string; // 書籍介紹模式附加指令
   temperature: number;
   maxTokens: number;
   motionSpeed: number; // 角色動作速度倍率(1 = 原速);目前只影響顏如玉
@@ -195,7 +197,25 @@ export default function ConfigModal({
           </button>
         </div>
 
-        <SectionTitle no="2" text="角色模組" />
+        <SectionTitle no="2" text="書籍介紹模式指令" />
+        <textarea
+          value={draft.bookGuidePrompt}
+          onChange={(e) => setDraft((d) => ({ ...d, bookGuidePrompt: e.target.value }))}
+          rows={4}
+          placeholder="切到書籍介紹模式時會附加在最後的指令"
+          className="theme-input w-full resize-none rounded-lg px-3 py-2 text-sm"
+        />
+        <div className="mt-1 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setDraft((d) => ({ ...d, bookGuidePrompt: DEFAULT_BOOK_GUIDE_PROMPT }))}
+            className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]"
+          >
+            <RotateCcw className="h-3 w-3" /> 還原預設
+          </button>
+        </div>
+
+        <SectionTitle no="3" text="角色模組" />
         <div className="space-y-2">
           {personaOptions.map((p) => {
             const Icon = personaIcons[p.id];
@@ -340,7 +360,7 @@ export default function ConfigModal({
           </div>
         )}
 
-        <SectionTitle no="3" text="Prompt 組裝預覽" />
+        <SectionTitle no="4" text="Prompt 組裝預覽" />
         <div className="mb-2 flex gap-2">
           {(
             [
@@ -368,7 +388,7 @@ export default function ConfigModal({
               {assembled || "（目前沒有任何系統指令）"}
             </pre>
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              書籍介紹模式下，送出時會再附加該模式的欄位指令。
+              書籍介紹模式下，送出時會再附加上方第 2 區的指令。
             </p>
           </>
         ) : (

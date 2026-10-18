@@ -23,6 +23,16 @@ export const DEFAULT_SYSTEM_PROMPT =
   "出版社、出版日期、頁數、獲獎紀錄、特色（如插畫、收錄內容）——不要把具體資訊改寫成泛用的形容。" +
   "出版年份以資料的出版日期欄位為準，不要用文案中出現的其他年份（如獎項年份）推斷。";
 
+/* 「書籍介紹」模式的附加指令出廠值：切到該模式時附加在系統提示詞最後。
+   使用者可在設定視窗修改（存瀏覽器本機），可隨時還原為此預設。 */
+export const DEFAULT_BOOK_GUIDE_PROMPT =
+  "目前模式是「書籍介紹」。請針對使用者提到的書籍或主題整理回覆，並使用以下欄位：書名、作者、主題、摘要。若無法確認書名或作者，請明確說明需要使用者補充或標示為未提供，不要捏造。";
+
+/* 讀取到的值若不是字串或只有空白，退回出廠值；有內容則原樣保留（不 trim） */
+export function normalizeBookGuidePrompt(v: unknown): string {
+  return typeof v === "string" && v.trim() !== "" ? v : DEFAULT_BOOK_GUIDE_PROMPT;
+}
+
 export type CustomModule = { name: string; content: string };
 
 export type PersonaModules = {

@@ -52,6 +52,7 @@ import Toast from "../components/Toast";
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
 import useLLMStream from "../hooks/useLLMStream";
 import {
+  DEFAULT_BOOK_GUIDE_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   assemblePersona,
   defaultPersonaModules,
@@ -837,6 +838,7 @@ export default function Librarian() {
             personaOptions={personaOptions}
             initial={{
               systemPrompt,
+              bookGuidePrompt: DEFAULT_BOOK_GUIDE_PROMPT, // 暫用出廠值，Task 2 改接 state
               temperature,
               maxTokens,
               motionSpeed,
