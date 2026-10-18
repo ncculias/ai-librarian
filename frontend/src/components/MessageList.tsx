@@ -259,10 +259,18 @@ function renderMarkdownContent(content: string) {
       return (
         <ListTag
           key={`list-${blockIndex}`}
+          start={block.ordered ? block.start : undefined}
           className={`message-list ${block.ordered ? "list-decimal" : "list-disc"} space-y-1 pl-5`}
         >
           {block.items.map((item, itemIndex) => (
-            <li key={`list-${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+            <li key={`list-${blockIndex}-${itemIndex}`}>
+              {item.split("\n").map((line, lineIndex) => (
+                <span key={`list-${blockIndex}-${itemIndex}-${lineIndex}`}>
+                  {lineIndex > 0 ? <br /> : null}
+                  {renderInlineMarkdown(line)}
+                </span>
+              ))}
+            </li>
           ))}
         </ListTag>
       );

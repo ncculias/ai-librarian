@@ -13,12 +13,32 @@ test("標題行獨立成 heading 區塊，即使前面沒有空行", () => {
   ]);
 });
 
-test("條列行可以直接接在文字後面（不用空行）", () => {
-  const blocks = parseMarkdownBlocks("這本書主要在談：\n- 分辨事實\n- 用假設思考\n結語");
+test("條列行可以直接接在文字後面（不用空行）；空行後的文字另起段落", () => {
+  const blocks = parseMarkdownBlocks("這本書主要在談：\n- 分辨事實\n- 用假設思考\n\n結語");
   assert.deepEqual(blocks, [
     { type: "paragraph", lines: ["這本書主要在談："] },
     { type: "list", ordered: false, items: ["分辨事實", "用假設思考"] },
     { type: "paragraph", lines: ["結語"] },
+  ]);
+});
+
+test("項目後面緊接的說明文字是該項目的續行，編號不會重來", () => {
+  const blocks = parseMarkdownBlocks("1. **目的論**\n人的行為不只被過去決定。\n也和目的有關。\n2. **課題分離**\n分清楚誰的課題。");
+  assert.deepEqual(blocks, [
+    {
+      type: "list",
+      ordered: true,
+      items: ["**目的論**\n人的行為不只被過去決定。\n也和目的有關。", "**課題分離**\n分清楚誰的課題。"],
+    },
+  ]);
+});
+
+test("有序清單被空行隔開時，保留模型寫的起始編號", () => {
+  const blocks = parseMarkdownBlocks("1. 一\n\n說明\n\n2. 二\n3. 三");
+  assert.deepEqual(blocks, [
+    { type: "list", ordered: true, items: ["一"] },
+    { type: "paragraph", lines: ["說明"] },
+    { type: "list", ordered: true, items: ["二", "三"], start: 2 },
   ]);
 });
 

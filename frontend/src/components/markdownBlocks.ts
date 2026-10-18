@@ -6,16 +6,18 @@
 export type MarkdownBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; lines: string[] }
-  | { type: "list"; ordered: boolean; items: string[] };
+  // items 內的 "\n" 是同一個項目的續行（項目後面緊接的說明文字）；
+  // start 是有序清單第一項寫的編號，讓「1. … 說明 … 2. …」被空行隔開時編號不會重來
+  | { type: "list"; ordered: boolean; items: string[]; start?: number };
 
 const headingPattern = /^(#{1,6})\s+(.*\S)\s*$/;
-const orderedItemPattern = /^\s*\d+[.)]\s+(.*)$/;
+const orderedItemPattern = /^\s*(\d+)[.)]\s+(.*)$/;
 const unorderedItemPattern = /^\s*[-*•]\s+(.*)$/;
 
 export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   let paragraph: string[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
+  let list: { ordered: boolean; items: string[]; start?: number } | null = null;
 
   const flushParagraph = () => {
     if (paragraph.length) blocks.push({ type: "paragraph", lines: paragraph });
@@ -49,12 +51,24 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       flushParagraph();
       const isOrdered = Boolean(ordered);
       if (list && list.ordered !== isOrdered) flushList();
-      if (!list) list = { ordered: isOrdered, items: [] };
-      list.items.push((ordered ?? unordered)![1].trim());
+      if (!list) {
+        list = { ordered: isOrdered, items: [] };
+        if (ordered) {
+          const start = Number(ordered[1]);
+          if (start !== 1) list.start = start;
+        }
+      }
+      list.items.push((ordered ? ordered[2] : unordered![1]).trim());
       continue;
     }
 
-    flushList();
+    // 緊接在清單項目後的一般文字是該項目的續行（Markdown 的 lazy continuation），
+    // 不另起段落——否則「1. 標題 / 說明 / 2. 標題」會被切成三塊、編號重來
+    if (list) {
+      list.items[list.items.length - 1] += `\n${line}`;
+      continue;
+    }
+
     paragraph.push(line);
   }
 
