@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Live2DPanel from "./Live2DPanel";
+import {
+  checkYanruyuSupport,
+  isYanruyuUrl,
+  readYanruyuEnv,
+} from "./live2d/yanruyu";
 
 type Live2DInfo = {
   name: string;
@@ -21,6 +26,9 @@ export default function Live2DArea({
   paused = false,
 }: Props) {
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
+  const [yanruyuSupport, setYanruyuSupport] = useState<
+    ReturnType<typeof checkYanruyuSupport>
+  >({ ok: true });
   const [resizeKey, setResizeKey] = useState(0);
 
   const rebuildPanel = useCallback(() => {
@@ -67,8 +75,17 @@ export default function Live2DArea({
 
         _setModels(normalized);
 
-        const first = normalized.find((m) => m.url.endsWith(".model3.json"));
-        setModelUrl(first?.url ?? normalized[0]?.url ?? "");
+        const support = checkYanruyuSupport(readYanruyuEnv());
+        setYanruyuSupport(support);
+        if (!support.ok) {
+          console.warn("[Live2D] 顏如玉已停用:", support.reason);
+        }
+
+        const usable = support.ok
+          ? normalized
+          : normalized.filter((m) => !isYanruyuUrl(m.url));
+        const first = usable.find((m) => m.url.endsWith(".model3.json"));
+        setModelUrl(first?.url ?? usable[0]?.url ?? normalized[0]?.url ?? "");
       })
       .catch((err) => {
         console.error("Load Live2D manifest failed:", err);
@@ -96,11 +113,14 @@ export default function Live2DArea({
           onChange={(e) => setModelUrl(e.target.value)}
           className="theme-input rounded-md px-2 py-1 text-[11px]"
         >
-          {_models.map((m) => (
-            <option key={m.url} value={m.url}>
-              {m.name}
-            </option>
-          ))}
+          {_models.map((m) => {
+            const unsupported = !yanruyuSupport.ok && isYanruyuUrl(m.url);
+            return (
+              <option key={m.url} value={m.url} disabled={unsupported}>
+                {unsupported ? `${m.name}(此裝置不支援)` : m.name}
+              </option>
+            );
+          })}
         </select>
       </div>
 
