@@ -12,6 +12,9 @@ type Message = {
   kind?: "greeting"; // 進站問候語:只顯示,不送給 AI、不匯出、不掛來源/免責
 };
 
+// 換頁中斷串流時補在回覆後的標記
+export const INTERRUPTED_MARK = "（回覆已中斷：切換頁面時尚未完成）";
+
 // 一進網站(對話還是空的)時,AI 館員先打招呼
 export const DEFAULT_GREETING =
   "您好，我是顏如玉館員，很高興為您服務，請問有什麼可以幫忙的嗎？";
@@ -116,6 +119,11 @@ export default function useLLMStream({
   const pendingSourcesRef = useRef<ReplySource[]>([]);
   // 並發鎖用 ref 而不是 state：state 要等重繪才更新，連點的空窗會穿透；ref 當下就生效
   const inFlightRef = useRef(false);
+  // 這一輪串流的中止控制器：換頁(hook 卸載)時中止，避免背景繼續吃串流
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   const appendToAssistantMessage = (delta: string) => {
     if (!delta) return;
@@ -202,6 +210,8 @@ export default function useLLMStream({
     const text = customInput ?? input;
     if (!text.trim()) return;
     inFlightRef.current = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     // 先插入使用者訊息
     const userMsg: Message = { role: "user", content: text, ts: Date.now() };
@@ -231,6 +241,7 @@ export default function useLLMStream({
 
       const response = await fetch(`${API_BASE}/v2/react/stream`, {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: messagesForAPI,
@@ -383,7 +394,7 @@ export default function useLLMStream({
                   });
                 }
 
-                requestFollowUps(llmBufferRef.current);
+                if (!controller.signal.aborted) requestFollowUps(llmBufferRef.current);
                 setLoading(false);
               }
               break;
@@ -397,6 +408,27 @@ export default function useLLMStream({
       setLoading(false);
       setPendingStatus(null);
     } catch (err) {
+      // 換頁中止：React state 已隨元件卸載失效，直接把中斷標記寫進該頁 session，
+      // 回來時才看得到；不顯示一般錯誤訊息
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+        const s = getSession(sessionKey);
+        const last = s.messages[s.messages.length - 1];
+        if (last?.role === "assistant" && last.kind !== "greeting") {
+          s.messages = [
+            ...s.messages.slice(0, -1),
+            { ...last, content: last.content + "\n\n" + INTERRUPTED_MARK },
+          ];
+        } else if (last?.role === "user") {
+          s.messages = [
+            ...s.messages,
+            { role: "assistant", content: INTERRUPTED_MARK, ts: Date.now() },
+          ];
+        }
+        s.followUpQuestions = [];
+        setLoading(false);
+        setPendingStatus(null);
+        return;
+      }
       console.error("handleSend 錯誤：", err);
       // 有中文人話（後端 detail 或上面自組的訊息）就照顯示；
       // 其他技術性錯誤（如 Failed to fetch）給通用文案

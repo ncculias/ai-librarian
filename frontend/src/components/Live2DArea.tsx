@@ -54,6 +54,9 @@ export default function Live2DArea({
   const [resizeKey, setResizeKey] = useState(0);
   // 已處理過載入失敗的 url(每個 url 只反應一次,避免退回後再失敗而無限循環)
   const failedUrlsRef = useRef<Set<string>>(new Set());
+  // 載入清單時要讀「當下」的 modelUrl(換頁回來時沿用上次選的角色),但不讓 effect 因它重跑
+  const modelUrlRef = useRef(modelUrl);
+  modelUrlRef.current = modelUrl;
 
   const rebuildPanel = useCallback(() => {
     setResizeKey((k) => k + 1);
@@ -123,7 +126,11 @@ export default function Live2DArea({
         const usable = support.ok
           ? normalized
           : normalized.filter((m) => !isYanruyuUrl(m.url));
-        setModelUrl(pickModelUrl(usable, normalized));
+        // 已有合法的起始角色(換頁保留下來的)就沿用;空值或不在可用清單才自動挑
+        const current = modelUrlRef.current;
+        if (!current || !usable.some((m) => m.url === current)) {
+          setModelUrl(pickModelUrl(usable, normalized));
+        }
       })
       .catch((err) => {
         console.error("Load Live2D manifest failed:", err);

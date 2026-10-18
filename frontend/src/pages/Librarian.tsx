@@ -118,10 +118,19 @@ const storyTonePitch: Record<string, number> = {
   活潑: 1.12,
 };
 
+// 換頁保留（與對話 session 同一套路）：兩個聊天頁各掛載一份 Librarian，
+// 切頁會卸載重掛，這幾個 UI 選擇放模組層才不會被重置；重新整理才歸零，不存 localStorage
+const pageMemory = {
+  modelUrl: "",
+  bookOutputMode: "text" as (typeof bookOutputModes)[number]["id"],
+  storyTone: storySettings.tone[0],
+  storyPace: storySettings.pace[1],
+};
+
 export default function Librarian({ page }: { page: ChatPage }) {
   // 兩頁共用同一個元件，由路由決定模式；App.tsx 以 key 讓兩頁各自獨立掛載
   const isBookGuide = page === "book-guide";
-  const [modelUrl, setModelUrl] = useState<string>("");
+  const [modelUrl, setModelUrl] = useState<string>(pageMemory.modelUrl);
   const [emotionToken, setEmotionToken] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<Tool | null>(null);
@@ -162,9 +171,18 @@ export default function Librarian({ page }: { page: ChatPage }) {
   });
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [bookOutputMode, setBookOutputMode] =
-    useState<(typeof bookOutputModes)[number]["id"]>("text");
-  const [storyTone, setStoryTone] = useState(storySettings.tone[0]);
-  const [storyPace, setStoryPace] = useState(storySettings.pace[1]);
+    useState<(typeof bookOutputModes)[number]["id"]>(pageMemory.bookOutputMode);
+  const [storyTone, setStoryTone] = useState(pageMemory.storyTone);
+  const [storyPace, setStoryPace] = useState(pageMemory.storyPace);
+  // 回寫模組層，換頁回來時還原
+  useEffect(() => {
+    pageMemory.modelUrl = modelUrl;
+  }, [modelUrl]);
+  useEffect(() => {
+    pageMemory.bookOutputMode = bookOutputMode;
+    pageMemory.storyTone = storyTone;
+    pageMemory.storyPace = storyPace;
+  }, [bookOutputMode, storyTone, storyPace]);
   const [persona, setPersona] = useState<PersonaId>("none");
   // 模組化人設內容（spec v2）：出廠值在 data/personaModules.ts，使用者修改存本機
   const [personaModules, setPersonaModules] = useState<PersonaModuleSet>(() => {
@@ -332,6 +350,9 @@ export default function Librarian({ page }: { page: ChatPage }) {
   const [mouthSource, setMouthSource] = useState<MouthSource | null>(null);
   // 音訊分析失敗的警告只在每次載入頁面時印一次
   const lipsyncWarnedRef = useRef(false);
+  // 換頁卸載後，進行中的朗讀流程不可再出聲、改狀態或跳 toast
+  const unmountedRef = useRef(false);
+  const ttsAbortRef = useRef<AbortController | null>(null);
 
   const speakWithBrowserVoice = (index: number, text: string) => {
     if (!("speechSynthesis" in window)) return;
@@ -374,14 +395,19 @@ export default function Librarian({ page }: { page: ChatPage }) {
     stopVoice();
     setSpeakingIndex(index);
     setSpeakLoading(true);
+    ttsAbortRef.current?.abort();
+    const ttsController = new AbortController();
+    ttsAbortRef.current = ttsController;
     try {
       let url = ttsCacheRef.current.get(index);
       if (!url) {
         const res = await fetch(`${API_BASE}/v1/story-book/speak`, {
           method: "POST",
+          signal: ttsController.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),
         });
+        if (unmountedRef.current) return;
         if (!res.ok) {
           const detail = await res
             .json()
@@ -389,8 +415,18 @@ export default function Librarian({ page }: { page: ChatPage }) {
             .catch(() => null);
           throw new Error(typeof detail === "string" ? detail : `HTTP ${res.status}`);
         }
-        url = URL.createObjectURL(await res.blob());
+        const blob = await res.blob();
+        if (unmountedRef.current) return;
+        url = URL.createObjectURL(blob);
         ttsCacheRef.current.set(index, url);
+      }
+      if (unmountedRef.current) {
+        // 已卸載：快取可能在卸載清理之後才寫入，補收掉避免洩漏
+        if (url) {
+          URL.revokeObjectURL(url);
+          ttsCacheRef.current.delete(index);
+        }
+        return;
       }
       const audio = (audioRef.current ??= new Audio());
       audio.src = url;
@@ -404,6 +440,10 @@ export default function Librarian({ page }: { page: ChatPage }) {
       audio.onended = done;
       audio.onerror = done;
       await audio.play();
+      if (unmountedRef.current) {
+        audio.pause();
+        return;
+      }
       // 其他角色沒有口型,不必把音訊接進 Web Audio(也避開 Safari 的 context 風險)
       if (isYanruyuUrl(modelUrl)) {
         // 聲音出來後才接音源:analyser 失敗(或 context 未 running)就退回假口型
@@ -423,6 +463,8 @@ export default function Librarian({ page }: { page: ChatPage }) {
       setSpeakLoading(false);
       setVoiceStatus("playing");
     } catch (e) {
+      // 換頁中止或已卸載：靜默結束，不跳 toast、不退回內建語音、不改 state
+      if (unmountedRef.current || (e instanceof Error && e.name === "AbortError")) return;
       setSpeakLoading(false);
       const msg = e instanceof Error ? e.message : "未知錯誤";
       setToast({ text: `AI 語音暫時無法使用（${msg}），改用內建語音朗讀`, variant: "error" });
@@ -477,7 +519,7 @@ export default function Librarian({ page }: { page: ChatPage }) {
       ],
       speakers: { user: "使用者", assistant: "AI 館員" },
       messages: messages.filter((m) => m.kind !== "greeting"),
-      filePrefix: "AI館員對話",
+      filePrefix: isBookGuide ? "AI館員書籍介紹" : "AI館員對話",
     });
     setIsDownloadMenuOpen(false);
   };
@@ -506,7 +548,10 @@ export default function Librarian({ page }: { page: ChatPage }) {
 
   useEffect(() => {
     const cache = ttsCacheRef.current;
+    unmountedRef.current = false; // StrictMode 的模擬卸載後會重掛，要復原旗標
     return () => {
+      unmountedRef.current = true;
+      ttsAbortRef.current?.abort();
       window.speechSynthesis?.cancel();
       const audio = audioRef.current;
       if (audio) {
