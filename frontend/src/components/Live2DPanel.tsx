@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
-import { isYanruyuUrl, mapEmotion, shouldApply } from "./live2d/yanruyu";
+import {
+  YANRUYU_EXPRESSION_DELAY_MS,
+  isYanruyuUrl,
+  mapEmotion,
+  shouldApply,
+} from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
 
 // Live2DPanel 輸入參數
@@ -191,7 +196,10 @@ export default function Live2DPanel({
         // 載入模型
         const abs = new URL(modelUrl, window.location.origin).pathname;
         const isPoncho = abs.toLowerCase().includes("/poncho/");
-        model = await Live2DModel.from(abs, { autoUpdate: false });
+        // 顏如玉:預先載入全部動作檔,切換情緒時不用等下載(否則會「表情先換、動作晚到」)
+        const loadOptions: any = { autoUpdate: false };
+        if (isYanruyuUrl(abs)) loadOptions.motionPreload = "ALL";
+        model = await Live2DModel.from(abs, loadOptions);
         currentModelRef.current = model;
 
         if (destroyed) return;
@@ -445,9 +453,17 @@ export default function Live2DPanel({
       if (!shouldApply(yanruyuEmotionRef.current, next)) return;
       yanruyuEmotionRef.current = next;
       try {
-        model.expression(next);
+        // 動作先起(0.8 秒淡入,從目前姿勢轉過去),表情延後再換
         model.internalModel.motionManager.groups.idle = next;
         model.motion(next, 0, forcePriorityRef.current);
+        window.setTimeout(() => {
+          // 延遲期間若模型已換或情緒又變了,就不套這個過期的表情
+          if (currentModelRef.current !== model) return;
+          if (yanruyuEmotionRef.current !== next) return;
+          try {
+            model.expression(next);
+          } catch (_) {}
+        }, YANRUYU_EXPRESSION_DELAY_MS);
       } catch (_) {}
       return;
     }

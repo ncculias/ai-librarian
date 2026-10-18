@@ -5,6 +5,9 @@ export const YANRUYU_PATH = "/yanruyu/";
 export const YANRUYU_MODEL_URL = "/yanruyu/yanruyu.model3.json";
 // 動作播放速度倍率(1 = 廠商原速)。廠商動作節奏偏慢,依使用者回饋加速;只影響顏如玉。
 export const YANRUYU_MOTION_SPEED = 1.5;
+// 切換情緒時,動作先起、表情(臉/嘴/手臂的部件切換)延後這麼多毫秒再換,
+// 讓瞬切的手臂姿勢落在身體已經在動的時候,看起來像動作的一部分而非跳格。
+export const YANRUYU_EXPRESSION_DELAY_MS = 300;
 
 export function isYanruyuUrl(url: string): boolean {
   return url.toLowerCase().includes(YANRUYU_PATH);
