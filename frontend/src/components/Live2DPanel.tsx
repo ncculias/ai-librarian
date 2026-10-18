@@ -7,6 +7,7 @@ import {
   shouldApply,
 } from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
+import { computePlacement } from "./live2d/display";
 import type { CharacterView } from "./live2d/display";
 
 // Live2DPanel 輸入參數
@@ -113,6 +114,7 @@ export default function Live2DPanel({
   emotionToken,
   paused = false,
   motionSpeed = 1,
+  characterView = "full",
   onLoadError,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
@@ -135,6 +137,11 @@ export default function Live2DPanel({
   // 動作速度倍率也走 ref:設定視窗改值後 tick 立即讀到新值,不觸發模型重建
   const motionSpeedRef = useRef(motionSpeed);
   motionSpeedRef.current = motionSpeed;
+  // 人物顯示(全身/半身)同樣走 ref:切換時只重新 fit,不重建模型
+  const characterViewRef = useRef(characterView);
+  characterViewRef.current = characterView;
+  // 目前模型的 fit 函式(模型載入後才有值),供 characterView 變更時重新定位
+  const fitRef = useRef<(() => void) | null>(null);
   // 以 ref 持有最新回呼，避免 effect 因回呼身分改變而重建模型
   const onLoadErrorRef = useRef(onLoadError);
   onLoadErrorRef.current = onLoadError;
@@ -146,6 +153,11 @@ export default function Live2DPanel({
     if (paused) app.ticker.stop();
     else app.ticker.start();
   }, [paused]);
+
+  // 人物顯示切換:只重新 fit(套用新的縮放/位移),不動 PIXI app 與模型
+  useEffect(() => {
+    fitRef.current?.();
+  }, [characterView]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -253,15 +265,12 @@ export default function Live2DPanel({
           }
 
           if (yanruyuBounds) {
-            // 顏如玉：依實際繪製內容的邊界定位（左上角為原點），內容水平置中、底部貼齊
-            const cw = yanruyuBounds.maxX - yanruyuBounds.minX;
-            const ch = yanruyuBounds.maxY - yanruyuBounds.minY;
-            const cx = (yanruyuBounds.minX + yanruyuBounds.maxX) / 2;
-            const sc = Math.min((w * 0.9) / cw, (h * 0.95) / ch);
+            // 顏如玉：依實際繪製內容的邊界定位（左上角為原點）；全身/半身的縮放與位移由 computePlacement 算
+            const p = computePlacement(yanruyuBounds, w, h, characterViewRef.current);
             model.anchor?.set?.(0, 0);
             model.pivot?.set?.(0, 0);
-            model.scale.set(sc > 0 ? sc : 0.5);
-            model.position.set(w / 2 - cx * sc, h * 0.98 - yanruyuBounds.maxY * sc);
+            model.scale.set(p.scale);
+            model.position.set(p.x, p.y);
           } else {
             const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
             model.scale.set(scale > 0 ? scale : 0.5);
@@ -272,6 +281,8 @@ export default function Live2DPanel({
             model.visible = true;
           }
         };
+
+        fitRef.current = fit;
 
         let elapsedSec = 0;
 
@@ -423,6 +434,7 @@ export default function Live2DPanel({
     // 清除資源
     return () => {
       destroyed = true;
+      fitRef.current = null;
 
       try {
         ro?.disconnect();
