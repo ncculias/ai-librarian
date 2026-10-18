@@ -21,7 +21,9 @@ const cache = new WeakMap<
 export function warmUpAudioContext(): void {
   try {
     if (!ctx) ctx = new AudioContext();
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    // Safari 另有 "interrupted" 狀態(來電/鎖屏/背景),TS 的 AudioContextState 沒列;
+    // 已接線的元素在 context 恢復前會完全無聲,所以任何非 running 狀態都嘗試 resume
+    if (ctx.state !== "running") ctx.resume().catch(() => {});
   } catch {
     // 無法建立 AudioContext:交給 getAnalyserMouthSource 丟例外、由呼叫端退回假口型
   }
@@ -32,7 +34,9 @@ export function getAnalyserMouthSource(audio: HTMLMediaElement): MouthSource {
   if (!ctx) ctx = new AudioContext();
   const c = ctx;
   // 瀏覽器自動播放政策可能讓 context 一開始是 suspended
-  if (c.state === "suspended") c.resume().catch(() => {});
+  // Safari 另有 "interrupted" 狀態(來電/鎖屏/背景),TS 的 AudioContextState 沒列;
+  // 已接線的元素在 context 恢復前會完全無聲,所以任何非 running 狀態都嘗試 resume
+  if (c.state !== "running") c.resume().catch(() => {});
 
   let entry = cache.get(audio);
   if (!entry) {
@@ -62,12 +66,15 @@ export function getAnalyserMouthSource(audio: HTMLMediaElement): MouthSource {
 }
 
 // 假口型:沒有可用音訊(analyser 建立失敗等)時,以時間驅動的正弦動嘴。
+// isActive 為 false(實際沒在出聲)時嘴巴保持閉合。
 export function createFakeMouthSource(
   now: () => number = () => performance.now(),
+  isActive: () => boolean = () => true,
 ): MouthSource {
   const start = now();
   return {
     level() {
+      if (!isActive()) return 0;
       return fakeMouthAt(now() - start);
     },
   };

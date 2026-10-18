@@ -296,6 +296,7 @@ export default function Live2DPanel({
         // 顏如玉的動作節奏以倍率加速:推進更多的時間 = 動作播得更快(物理已關閉,不會不穩)
         // 倍率從 ref 讀,設定視窗調整後即時生效、不需重建模型
         const speedApplies = isYanruyuUrl(abs);
+        const isYanruyu = speedApplies;
         // 顏如玉嘴巴目前開合度(模型重建即歸零)
         let mouth = 0;
         tickFn = (dt: number) => {
@@ -304,16 +305,24 @@ export default function Live2DPanel({
           const elapsed = speedApplies ? app!.ticker.deltaMS * motionSpeedRef.current : dt;
           model.update?.(elapsed);
 
-          if (speedApplies) {
-            // 顏如玉:朗讀口型。必須在 model.update() 之後寫,才不會被動作覆蓋。
+          if (isYanruyu) {
+            // 顏如玉:朗讀口型。pixi-live2d-display 0.4 的 model.update() 只累積時間,
+            // 動作在 render 時才套用,所以我們這裡的寫入會先於動作;之所以可行,
+            // 是因為顏如玉的動作/表情檔都沒有寫 PARAM_MOUTH_OPEN(已驗證)。
             // 沒音源且嘴巴已閉合時完全不寫,讓動作檔自己的嘴型不受干擾。
             const src = mouthSourceRef.current;
             if (src || mouth > MOUTH_REST_EPSILON) {
-              const raw = src ? src.level() : 0;
-              // 非有限值(NaN/Infinity)當 0,避免壞的一幀讓嘴巴卡住
-              mouth = smoothMouth(mouth, Number.isFinite(raw) ? raw : 0);
-              if (!src && mouth <= MOUTH_REST_EPSILON) mouth = 0;
               try {
+                // 讀音量也放進 try:analyser 丟例外時視為 0,不能讓 PIXI ticker 中斷
+                let raw = 0;
+                try {
+                  raw = src ? src.level() : 0;
+                } catch (_) {
+                  raw = 0;
+                }
+                // 非有限值(NaN/Infinity)當 0,避免壞的一幀讓嘴巴卡住
+                mouth = smoothMouth(mouth, Number.isFinite(raw) ? raw : 0);
+                if (!src && mouth <= MOUTH_REST_EPSILON) mouth = 0;
                 model.internalModel?.coreModel?.setParameterValueById?.(
                   "PARAM_MOUTH_OPEN",
                   mouth,
