@@ -33,7 +33,7 @@ export function shouldApply(prev: YanruyuEmotion | null, next: YanruyuEmotion | 
 export interface YanruyuEnv {
   maxTextureSize: number | null;
   isTouch: boolean;
-  innerWidth: number;
+  screenMin: number; // 螢幕短邊(與橫豎向無關)
   deviceMemory: number | undefined;
 }
 
@@ -42,7 +42,7 @@ export function checkYanruyuSupport(env: YanruyuEnv): { ok: true } | { ok: false
   if (env.maxTextureSize < 8192) {
     return { ok: false, reason: `貼圖上限 ${env.maxTextureSize} < 8192` };
   }
-  if (env.isTouch && env.innerWidth < 1024) {
+  if (env.isTouch && env.screenMin <= 1024) {
     return { ok: false, reason: "行動裝置(待 4096 貼圖)" };
   }
   if (env.deviceMemory !== undefined && env.deviceMemory <= 4) {
@@ -56,10 +56,12 @@ export function readYanruyuEnv(): Parameters<typeof checkYanruyuSupport>[0] {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
   const maxTextureSize = gl ? (gl.getParameter(gl.MAX_TEXTURE_SIZE) as number) : null;
+  // 探測用的 context 用完即釋放,避免佔用瀏覽器有限的 WebGL context 數量
+  gl?.getExtension("WEBGL_lose_context")?.loseContext();
   return {
     maxTextureSize,
     isTouch: navigator.maxTouchPoints > 0,
-    innerWidth: window.innerWidth,
+    screenMin: Math.min(window.screen.width, window.screen.height),
     deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
   };
 }
