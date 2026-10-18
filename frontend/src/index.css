@@ -482,6 +482,21 @@
 .toast-enter {
   animation: toastIn 0.2s ease-out;
 }
+.toast-success {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-border);
+  color: var(--color-accent-text);
+}
+.toast-error {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+:root[data-theme="dark"] .toast-error {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #f87171;
+  color: #fca5a5;
+}
 .animate-fadeIn {
   animation: fadeIn 0.15s ease-out;
 }
