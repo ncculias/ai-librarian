@@ -564,10 +564,10 @@ export default function Librarian() {
       <section
         className={`card motion-surface flex flex-col p-4 sm:p-6 ${
           isChatExpanded
-            ? "h-[calc(100vh-8rem)] md:col-span-3"
+            ? "h-[calc(100vh-6rem)] md:col-span-3"
             : isStacked
               ? "layout-stacked-chat chat-overlay"
-              : "h-[80vh] md:col-span-2"
+              : "h-[calc(100vh-6rem)] md:col-span-2"
         }`}
       >
         <header className="mb-4 flex items-start justify-between gap-4">

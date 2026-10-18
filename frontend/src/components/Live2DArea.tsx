@@ -136,7 +136,7 @@ export default function Live2DArea({
       className={
         isStacked
           ? "card p-6 relative layout-stacked-stage"
-          : "card p-6 md:col-span-1 h-[80vh] relative"
+          : "card p-6 md:col-span-1 h-[calc(100vh-6rem)] relative"
       }
     >
       <div className="theme-live2d-stage absolute inset-0 z-0 rounded-xl border border-dashed">
