@@ -93,12 +93,15 @@ type Props = {
   onSpeak?: (index: number) => void;
   onStopSpeak?: () => void;
   speakingIndex?: number | null;
+  /** 正在向後端取語音(Gemini TTS 合成中),按鈕顯示「準備中」 */
+  speakLoading?: boolean;
 };
 
 // 每則 AI 回覆下方的動作列(仿 ChatGPT):複製、朗讀
 function ReplyActions({
   index,
   speaking,
+  loading,
   showSpeak,
   onCopy,
   onSpeak,
@@ -106,6 +109,7 @@ function ReplyActions({
 }: {
   index: number;
   speaking: boolean;
+  loading: boolean;
   showSpeak: boolean;
   onCopy?: (index: number) => boolean | void | Promise<boolean | void>;
   onSpeak?: (index: number) => void;
@@ -142,7 +146,7 @@ function ReplyActions({
           title={speaking ? "停止" : "朗讀"}
         >
           {speaking ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          <span>{speaking ? "停止" : "朗讀"}</span>
+          <span>{speaking ? (loading ? "準備中…" : "停止") : "朗讀"}</span>
         </button>
       )}
     </div>
@@ -296,6 +300,7 @@ export default function MessageList({
   onSpeak,
   onStopSpeak,
   speakingIndex = null,
+  speakLoading = false,
 }: Props) {
   // 自動捲到最新：使用者在底部附近才跟著捲；往上讀舊訊息時不打擾。
   // 自己送出的訊息（最後一則是 user）則一律捲到底。
@@ -369,6 +374,7 @@ export default function MessageList({
             <ReplyActions
               index={i}
               speaking={speakingIndex === i}
+              loading={speakingIndex === i && speakLoading}
               showSpeak={assistantActions?.messageIndex !== i}
               onCopy={onCopy}
               onSpeak={onSpeak}

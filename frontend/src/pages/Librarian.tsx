@@ -1,5 +1,5 @@
 import type { ElementType } from "react";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { mcpTools, type Tool } from "../data/mcpTools";
 import { exportChat } from "../utils/exportChat";
@@ -28,6 +28,7 @@ import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
 import ConfigModal from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
+import { API_BASE } from "../hooks/useLLMStream";
 import Popover from "../components/Popover";
 import Toast from "../components/Toast";
 
@@ -296,17 +297,20 @@ export default function Librarian() {
   // 正在朗讀的訊息索引(每則回覆下方的朗讀鈕用;null = 沒在念)
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
 
-  // 朗讀指定索引的回覆(瀏覽器內建語音,免費無額度;同一時間只念一則)
-  const speakMessage = (index: number) => {
-    const text = messages[index]?.content.trim();
-    if (!text || !("speechSynthesis" in window)) return;
+  // 朗讀用 Gemini TTS(與故事書同一個後端端點、同一把金鑰):
+  // - 同一則回覆的語音會快取,重播不重算額度(免費版每天 10 次、每分鐘 3 次)
+  // - Gemini 失敗(額度用完、網路問題)時自動退回瀏覽器內建語音,並提示原因
+  const [speakLoading, setSpeakLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsCacheRef = useRef<Map<number, string>>(new Map()); // 訊息索引 → 音檔 object URL
 
+  const speakWithBrowserVoice = (index: number, text: string) => {
+    if (!("speechSynthesis" in window)) return;
     // Chrome 引擎若卡在 paused 狀態，cancel/speak 都會被無視：先強制 resume 解鎖
     try {
       window.speechSynthesis.resume();
     } catch (_) {}
     window.speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-TW";
     utterance.rate = storyPaceRate[storyPace] ?? 1;
@@ -317,10 +321,53 @@ export default function Librarian() {
     };
     utterance.onend = done;
     utterance.onerror = done;
-
     window.speechSynthesis.speak(utterance);
     setVoiceStatus("playing");
     setSpeakingIndex(index);
+  };
+
+  const speakMessage = async (index: number) => {
+    const text = messages[index]?.content.trim();
+    if (!text) return;
+    stopVoice();
+    setSpeakingIndex(index);
+    setSpeakLoading(true);
+    try {
+      let url = ttsCacheRef.current.get(index);
+      if (!url) {
+        const res = await fetch(`${API_BASE}/v1/story-book/speak`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          const detail = await res
+            .json()
+            .then((j) => j?.detail)
+            .catch(() => null);
+          throw new Error(typeof detail === "string" ? detail : `HTTP ${res.status}`);
+        }
+        url = URL.createObjectURL(await res.blob());
+        ttsCacheRef.current.set(index, url);
+      }
+      const audio = (audioRef.current ??= new Audio());
+      audio.src = url;
+      audio.playbackRate = storyPaceRate[storyPace] ?? 1;
+      const done = () => {
+        setVoiceStatus("idle");
+        setSpeakingIndex((cur) => (cur === index ? null : cur));
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      await audio.play();
+      setSpeakLoading(false);
+      setVoiceStatus("playing");
+    } catch (e) {
+      setSpeakLoading(false);
+      const msg = e instanceof Error ? e.message : "未知錯誤";
+      setToast({ text: `AI 語音暫時無法使用（${msg}），改用內建語音朗讀`, variant: "error" });
+      speakWithBrowserVoice(index, text);
+    }
   };
 
   // 複製某則回覆的文字到剪貼簿:先用 Clipboard API,不行再退回舊式 execCommand;回傳是否成功
@@ -383,13 +430,26 @@ export default function Librarian() {
       window.speechSynthesis.resume();
     } catch (_) {}
     window.speechSynthesis.cancel();
+    // Gemini 語音走 <audio>,一併停掉
+    const audio = audioRef.current;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.currentTime = 0;
+    }
     setVoiceStatus("idle");
     setSpeakingIndex(null);
+    setSpeakLoading(false);
   };
 
   useEffect(() => {
+    const cache = ttsCacheRef.current;
     return () => {
       window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
+      cache.forEach((url) => URL.revokeObjectURL(url));
+      cache.clear();
     };
   }, []);
 
@@ -670,6 +730,7 @@ export default function Librarian() {
           onSpeak={speakMessage}
           onStopSpeak={stopVoice}
           speakingIndex={speakingIndex}
+          speakLoading={speakLoading}
           assistantActions={
             canShowVoiceControls
               ? {

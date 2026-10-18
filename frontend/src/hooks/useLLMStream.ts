@@ -41,7 +41,7 @@ type APIConfig = {
 };
 
 // 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 // 換頁保留（與 MyStoryBook 的 bookSession 同一套路）：
 // 對話記憶以前端歷史為準，所以保住訊息列表＝保住上下文；重新整理才歸零。
