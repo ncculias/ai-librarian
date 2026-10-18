@@ -344,7 +344,18 @@
 .layout-stacked-stage { height: 60vh; }
 /* 8rem 為頁首預留高度，讓輸入框維持在首屏內 */
 .layout-stacked-chat { height: calc(70vh - 8rem); margin-top: -30vh; position: relative; z-index: 20; }
+/* 半透明與模糊放在 ::before 上：backdrop-filter 若直接加在卡片上，
+   會讓卡片內 position: fixed 的彈窗/Toast 以卡片而非視窗為定位基準 */
 .chat-overlay {
+  background-color: transparent;
+}
+.chat-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
   background-color: rgba(var(--color-bg-card-rgb), 0.82);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);

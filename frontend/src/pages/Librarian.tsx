@@ -1,5 +1,6 @@
 import type { ElementType } from "react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { mcpTools, type Tool } from "../data/mcpTools";
 import { exportChat } from "../utils/exportChat";
@@ -845,7 +846,9 @@ function VoiceSettingsModal({
   onPaceChange: (value: string) => void;
   onClose: () => void;
 }) {
-  return (
+  // 以 portal 掛到 body：上下版面的對話卡自成 stacking context（z-20），
+  // 不 portal 的話 z-50 只在卡片內有效，會被 sticky Navbar 蓋住
+  return createPortal(
     <div className="theme-overlay fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="theme-modal w-full max-w-md rounded-xl p-6 shadow-xl">
         <div className="mb-5 flex items-center gap-2">
@@ -880,7 +883,8 @@ function VoiceSettingsModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
