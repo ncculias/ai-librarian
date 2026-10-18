@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
-import { isYanruyuUrl, mapEmotion, shouldApply } from "./live2d/yanruyu";
+import {
+  YANRUYU_MOTION_SPEED,
+  isYanruyuUrl,
+  mapEmotion,
+  shouldApply,
+} from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
 
 // Live2DPanel 輸入參數
@@ -260,8 +265,10 @@ export default function Live2DPanel({
 
         let elapsedSec = 0;
 
+        // 顏如玉的動作節奏以倍率加速:推進更多的時間 = 動作播得更快(物理已關閉,不會不穩)
+        const motionSpeed = isYanruyuUrl(abs) ? YANRUYU_MOTION_SPEED : 1;
         tickFn = (dt: number) => {
-          model.update?.(dt);
+          model.update?.(dt * motionSpeed);
 
           if (isPoncho) {
             const core = model?.internalModel?.coreModel;

@@ -3,6 +3,8 @@
 
 export const YANRUYU_PATH = "/yanruyu/";
 export const YANRUYU_MODEL_URL = "/yanruyu/yanruyu.model3.json";
+// 動作播放速度倍率(1 = 廠商原速)。廠商動作節奏偏慢,依使用者回饋加速;只影響顏如玉。
+export const YANRUYU_MOTION_SPEED = 1.5;
 
 export function isYanruyuUrl(url: string): boolean {
   return url.toLowerCase().includes(YANRUYU_PATH);
