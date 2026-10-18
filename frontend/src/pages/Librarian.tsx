@@ -481,8 +481,23 @@ export default function Librarian() {
     stopVoice();
   }, [bookOutputMode, chatMode]);
 
+  // 上下版面僅在未放大對話區時生效；放大時維持原本行為
+  const isStacked = layout === "stacked" && !isChatExpanded;
+  const toolsSection = (
+    <ToolsSection
+      mcpTools={mcpTools}
+      selected={selected}
+      setSelected={setSelected}
+      toolIconMap={toolIconMap}
+    />
+  );
+
   return (
-    <div className="mx-auto grid min-h-screen w-full max-w-screen-2xl grid-cols-1 gap-4 px-0 overflow-hidden sm:gap-6 sm:px-6 md:grid-cols-3">
+    <div
+      className={`mx-auto grid min-h-screen w-full max-w-screen-2xl grid-cols-1 px-0 overflow-hidden sm:px-6 ${
+        isStacked ? "gap-0" : "gap-4 sm:gap-6 md:grid-cols-3"
+      }`}
+    >
       {!isChatExpanded && (
         <Live2DArea
           modelUrl={modelUrl}
@@ -499,7 +514,9 @@ export default function Librarian() {
         className={`card motion-surface flex flex-col p-4 sm:p-6 ${
           isChatExpanded
             ? "h-[calc(100vh-8rem)] md:col-span-3"
-            : "h-[80vh] md:col-span-2"
+            : isStacked
+              ? "layout-stacked-chat chat-overlay"
+              : "h-[80vh] md:col-span-2"
         }`}
       >
         <header className="mb-4 flex items-start justify-between gap-4">
@@ -804,14 +821,13 @@ export default function Librarian() {
       </section>
 
       {/* 下方工具列表區域 */}
-      {!isChatExpanded && (
-        <ToolsSection
-          mcpTools={mcpTools}
-          selected={selected}
-          setSelected={setSelected}
-          toolIconMap={toolIconMap}
-        />
-      )}
+      {!isChatExpanded &&
+        (isStacked ? (
+          // 上下版面 gap 為 0，工具列表自行留出上方間距
+          <div className="mt-6">{toolsSection}</div>
+        ) : (
+          toolsSection
+        ))}
     </div>
   );
 }

@@ -10,6 +10,7 @@
   --color-bg-page: #f7f4ee;
   --color-bg-page-rgb: 247, 244, 238;
   --color-bg-card: #ffffff;
+  --color-bg-card-rgb: 255, 255, 255;
   --color-bg-panel: #fcfaf7;
   --color-bg-input: #ffffff;
   --color-border: #d6d3d1;
@@ -32,6 +33,7 @@
   --color-bg-page: #000000;
   --color-bg-page-rgb: 0, 0, 0;
   --color-bg-card: rgba(23, 23, 23, 0.6);
+  --color-bg-card-rgb: 23, 23, 23;
   --color-bg-panel: rgba(23, 23, 23, 0.4);
   --color-bg-input: #171717;
   --color-border: #262626;
@@ -337,6 +339,16 @@
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
 }
+
+/* 上下版面：對話卡壓在人物區上，半透明透出人物，氣泡維持不透明 */
+.layout-stacked-stage { height: 60vh; }
+.layout-stacked-chat { height: 70vh; margin-top: -30vh; position: relative; z-index: 20; }
+.chat-overlay {
+  background-color: rgba(var(--color-bg-card-rgb), 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.chat-overlay .message-bubble-assistant { background-color: var(--color-bg-input); }
 
 .message-markdown {
   color: inherit;

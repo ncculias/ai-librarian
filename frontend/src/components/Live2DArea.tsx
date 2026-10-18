@@ -7,6 +7,7 @@ import {
 } from "./live2d/yanruyu";
 import {
   DEFAULT_CHARACTER_VIEW,
+  DEFAULT_LAYOUT_MODE,
   type CharacterView,
   type LayoutMode,
 } from "./live2d/display";
@@ -40,7 +41,9 @@ export default function Live2DArea({
   paused = false,
   motionSpeed = 1,
   characterView = DEFAULT_CHARACTER_VIEW,
+  layout = DEFAULT_LAYOUT_MODE,
 }: Props) {
+  const isStacked = layout === "stacked";
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
   const [yanruyuSupport, setYanruyuSupport] = useState<
     ReturnType<typeof checkYanruyuSupport>
@@ -126,7 +129,13 @@ export default function Live2DArea({
   }, [setModelUrl]);
 
   return (
-    <section className="card p-6 md:col-span-1 h-[80vh] relative">
+    <section
+      className={
+        isStacked
+          ? "card p-6 relative layout-stacked-stage"
+          : "card p-6 md:col-span-1 h-[80vh] relative"
+      }
+    >
       <div className="theme-live2d-stage absolute inset-0 z-0 rounded-xl border border-dashed">
         {modelUrl && (
           <Live2DPanel
@@ -159,7 +168,11 @@ export default function Live2DArea({
         </select>
       </div>
 
-      <div className="absolute bottom-2 right-2 z-10">
+      <div
+        className={`absolute z-10 ${
+          isStacked ? "top-2 left-2" : "bottom-2 right-2"
+        }`}
+      >
         <div className="theme-emotion-pill flex items-center gap-2 rounded-md px-2 py-1 text-[10px] backdrop-blur">
           <span className="text-[var(--color-text-secondary)]">emotion</span>
           <span className="font-mono text-[var(--color-accent-text)]">
