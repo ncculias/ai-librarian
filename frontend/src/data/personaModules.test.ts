@@ -1,16 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULT_BOOK_GUIDE_PROMPT,
-  normalizeBookGuidePrompt,
+  BOOK_GUIDE_INSTRUCTION,
+  DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT,
+  DEFAULT_SYSTEM_PROMPT,
+  normalizePrompt,
 } from "./personaModules.ts";
 
-test("normalizeBookGuidePrompt", () => {
-  assert.equal(normalizeBookGuidePrompt(undefined), DEFAULT_BOOK_GUIDE_PROMPT);
-  assert.equal(normalizeBookGuidePrompt(null), DEFAULT_BOOK_GUIDE_PROMPT);
-  assert.equal(normalizeBookGuidePrompt(""), DEFAULT_BOOK_GUIDE_PROMPT);
-  assert.equal(normalizeBookGuidePrompt("   \n"), DEFAULT_BOOK_GUIDE_PROMPT);
-  assert.equal(normalizeBookGuidePrompt(42), DEFAULT_BOOK_GUIDE_PROMPT);
-  assert.equal(normalizeBookGuidePrompt(" 自訂指令 "), " 自訂指令 ");
-  assert.ok(DEFAULT_BOOK_GUIDE_PROMPT.includes("書名、作者、主題、摘要"));
+test("normalizePrompt", () => {
+  assert.equal(normalizePrompt(undefined, "預設"), "預設");
+  assert.equal(normalizePrompt("   \n", "預設"), "預設");
+  assert.equal(normalizePrompt(42, "預設"), "預設");
+  assert.equal(normalizePrompt(" 自訂 ", "預設"), " 自訂 ");
+  assert.ok(DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT.startsWith(DEFAULT_SYSTEM_PROMPT));
+  assert.ok(DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT.endsWith(BOOK_GUIDE_INSTRUCTION));
+  assert.ok(BOOK_GUIDE_INSTRUCTION.includes("書名、作者、主題、摘要"));
 });

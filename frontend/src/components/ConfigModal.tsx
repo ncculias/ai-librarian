@@ -16,7 +16,7 @@ import {
 import type { ElementType } from "react";
 import type { CharacterView, LayoutMode } from "./live2d/display";
 import {
-  DEFAULT_BOOK_GUIDE_PROMPT,
+  BOOK_GUIDE_INSTRUCTION,
   DEFAULT_SYSTEM_PROMPT,
   MODULE_META,
   assemblePersona,
@@ -208,7 +208,7 @@ export default function ConfigModal({
         <div className="mt-1 flex justify-end">
           <button
             type="button"
-            onClick={() => setDraft((d) => ({ ...d, bookGuidePrompt: DEFAULT_BOOK_GUIDE_PROMPT }))}
+            onClick={() => setDraft((d) => ({ ...d, bookGuidePrompt: BOOK_GUIDE_INSTRUCTION }))}
             className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]"
           >
             <RotateCcw className="h-3 w-3" /> 還原預設

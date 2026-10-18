@@ -16,8 +16,12 @@ type Message = {
 export const DEFAULT_GREETING =
   "您好，我是顏如玉館員，很高興為您服務，請問有什麼可以幫忙的嗎？";
 
-function greetingMessage(): Message {
-  return { role: "assistant", content: DEFAULT_GREETING, kind: "greeting", ts: Date.now() };
+// 書籍介紹頁的開場句
+export const BOOK_GUIDE_GREETING =
+  "您好，我是顏如玉館員，想了解哪本書？告訴我書名或主題，我幫你整理介紹。";
+
+function greetingMessage(text: string): Message {
+  return { role: "assistant", content: text, kind: "greeting", ts: Date.now() };
 }
 
 // 工具代號 → 顯示名稱(後端 /v1/tools 的 name)
@@ -42,6 +46,8 @@ function extractUrls(text: string, max = 5): string[] {
 type APIMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type APIConfig = {
+  sessionKey: string; // 對話紀錄分頁:聊天問答、書籍介紹各自一份
+  greeting: string; // 該頁對話為空時的開場句
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
@@ -54,37 +60,45 @@ export const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 // 換頁保留（與 MyStoryBook 的 bookSession 同一套路）：
 // 對話記憶以前端歷史為準，所以保住訊息列表＝保住上下文；重新整理才歸零。
-const chatSession: {
-  messages: Message[];
-  followUpQuestions: string[];
-} = {
-  messages: [],
-  followUpQuestions: [],
-};
+// 依 sessionKey 分頁存放，聊天問答與書籍介紹的對話互不干擾。
+type ChatSession = { messages: Message[]; followUpQuestions: string[] };
+const sessions = new Map<string, ChatSession>();
+
+function getSession(key: string): ChatSession {
+  let session = sessions.get(key);
+  if (!session) {
+    session = { messages: [], followUpQuestions: [] };
+    sessions.set(key, session);
+  }
+  return session;
+}
 
 export default function useLLMStream({
+  sessionKey,
+  greeting,
   systemPrompt,
   temperature,
   maxTokens,
   currentModel,
   onEmotion,
 }: APIConfig) {
+  const session = getSession(sessionKey);
   const [messages, setMessages] = useState<Message[]>(() =>
-    chatSession.messages.length > 0 ? chatSession.messages : [greetingMessage()],
+    session.messages.length > 0 ? session.messages : [greetingMessage(greeting)],
   );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>(
-    chatSession.followUpQuestions
+    session.followUpQuestions
   );
 
-  // 狀態變動時回寫 chatSession，換頁卸載後再掛載就能原樣還原
+  // 狀態變動時回寫該頁的 session，換頁卸載後再掛載就能原樣還原
   useEffect(() => {
-    chatSession.messages = messages;
-  }, [messages]);
+    getSession(sessionKey).messages = messages;
+  }, [sessionKey, messages]);
   useEffect(() => {
-    chatSession.followUpQuestions = followUpQuestions;
-  }, [followUpQuestions]);
+    getSession(sessionKey).followUpQuestions = followUpQuestions;
+  }, [sessionKey, followUpQuestions]);
   // 等待中的狀態文字（顯示在「三點思考泡泡」裡）；null = 沒有等待泡泡
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
 

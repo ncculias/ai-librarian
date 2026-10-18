@@ -50,13 +50,14 @@ import Popover from "../components/Popover";
 import Toast from "../components/Toast";
 
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
-import useLLMStream from "../hooks/useLLMStream";
+import useLLMStream, { DEFAULT_GREETING } from "../hooks/useLLMStream";
+import { availableModels, defaultModel } from "../data/models";
 import {
-  DEFAULT_BOOK_GUIDE_PROMPT,
+  BOOK_GUIDE_INSTRUCTION,
   DEFAULT_SYSTEM_PROMPT,
   assemblePersona,
   defaultPersonaModules,
-  normalizeBookGuidePrompt,
+  normalizePrompt,
   type PersonaModuleSet,
 } from "../data/personaModules";
 
@@ -71,17 +72,6 @@ const toolIconMap: Record<string, ElementType> = {
   google_books: Bookmark,
   open_weather_map: CloudSun,
 };
-
-// 2026-09 現役型號（GPT-5.4 世代為主力；gpt-4o-mini 留作省錢備援）
-const availableModels = [
-  "openai:gpt-5.4-mini",
-  "openai:gpt-5.4",
-  "openai:gpt-5.4-nano",
-  "openai:gpt-5.1",
-  "openai:gpt-4o-mini",
-];
-
-const defaultModel = "openai:gpt-5.4-mini";
 
 const chatModes = [
   {
@@ -155,7 +145,7 @@ export default function Librarian() {
   } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   // 書籍介紹模式指令：出廠值在 data/personaModules.ts，使用者修改存於 aiConfig
-  const [bookGuidePrompt, setBookGuidePrompt] = useState(DEFAULT_BOOK_GUIDE_PROMPT);
+  const [bookGuidePrompt, setBookGuidePrompt] = useState(BOOK_GUIDE_INSTRUCTION);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
@@ -260,7 +250,7 @@ export default function Librarian() {
     setPersona(draft.persona as PersonaId);
     setPersonaModules(draft.personaModules);
     // 空白或非字串一律落回出廠值,state 與 localStorage 同步存正規化後的值
-    const bg = normalizeBookGuidePrompt(draft.bookGuidePrompt);
+    const bg = normalizePrompt(draft.bookGuidePrompt, BOOK_GUIDE_INSTRUCTION);
     setBookGuidePrompt(bg);
 
     localStorage.setItem(
@@ -307,7 +297,7 @@ export default function Librarian() {
       )
         setPersona(saved.persona as PersonaId);
       // 缺值或空白由 normalize 落回出廠值
-      setBookGuidePrompt(normalizeBookGuidePrompt(saved.bookGuidePrompt));
+      setBookGuidePrompt(normalizePrompt(saved.bookGuidePrompt, BOOK_GUIDE_INSTRUCTION));
     } catch (_) {
       // 忽略錯誤，不讓 UI 中斷
     }
@@ -337,6 +327,8 @@ export default function Librarian() {
     pendingStatus,
     handleSend,
   } = useLLMStream({
+      sessionKey: "general",
+      greeting: DEFAULT_GREETING,
       systemPrompt: modeSystemPrompt,
       temperature,
       maxTokens,
