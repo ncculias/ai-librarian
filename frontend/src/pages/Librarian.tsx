@@ -56,6 +56,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   assemblePersona,
   defaultPersonaModules,
+  normalizeBookGuidePrompt,
   type PersonaModuleSet,
 } from "../data/personaModules";
 
@@ -129,9 +130,6 @@ const personaOptions = [
 
 type PersonaId = (typeof personaOptions)[number]["id"];
 
-const bookGuidePrompt =
-  "目前模式是「書籍介紹」。請針對使用者提到的書籍或主題整理回覆，並使用以下欄位：書名、作者、主題、摘要。若無法確認書名或作者，請明確說明需要使用者補充或標示為未提供，不要捏造。";
-
 const storyPaceRate: Record<string, number> = {
   慢: 0.82,
   中: 1,
@@ -156,6 +154,8 @@ export default function Librarian() {
     variant?: "success" | "error";
   } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
+  // 書籍介紹模式指令：出廠值在 data/personaModules.ts，使用者修改存於 aiConfig
+  const [bookGuidePrompt, setBookGuidePrompt] = useState(DEFAULT_BOOK_GUIDE_PROMPT);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
@@ -259,6 +259,9 @@ export default function Librarian() {
     setLayout(lm);
     setPersona(draft.persona as PersonaId);
     setPersonaModules(draft.personaModules);
+    // 空白或非字串一律落回出廠值,state 與 localStorage 同步存正規化後的值
+    const bg = normalizeBookGuidePrompt(draft.bookGuidePrompt);
+    setBookGuidePrompt(bg);
 
     localStorage.setItem(
       "aiConfig",
@@ -271,6 +274,7 @@ export default function Librarian() {
         layout: lm,
         model: currentModel,
         persona: draft.persona,
+        bookGuidePrompt: bg,
       }),
     );
     localStorage.setItem("personaModules_v2", JSON.stringify(draft.personaModules));
@@ -302,6 +306,8 @@ export default function Librarian() {
         personaOptions.some((p) => p.id === saved.persona)
       )
         setPersona(saved.persona as PersonaId);
+      // 缺值或空白由 normalize 落回出廠值
+      setBookGuidePrompt(normalizeBookGuidePrompt(saved.bookGuidePrompt));
     } catch (_) {
       // 忽略錯誤，不讓 UI 中斷
     }
@@ -838,7 +844,7 @@ export default function Librarian() {
             personaOptions={personaOptions}
             initial={{
               systemPrompt,
-              bookGuidePrompt: DEFAULT_BOOK_GUIDE_PROMPT, // 暫用出廠值，Task 2 改接 state
+              bookGuidePrompt,
               temperature,
               maxTokens,
               motionSpeed,
