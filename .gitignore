@@ -11,3 +11,6 @@
 
 # SDD controller scratch workspace
 .superpowers/
+
+# Live2D vendor model runtime dir (license forbids redistribution; deployed via rsync)
+frontend/public/yanruyu/
