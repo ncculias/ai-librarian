@@ -55,6 +55,49 @@ const DEFAULT_PONCHO_POSE: PonchoPose = {
   rPalmX: 0,
 };
 
+type DrawnBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+// 顏如玉：取得模型實際繪製內容的邊界（模型本地像素座標，與 model.width/height 同一空間）。
+// 該模型的 Live2D 畫布矩形與繪製內容不符，用畫布矩形置中會偏小且被裁切。
+// 頂點座標用引擎自己的換算（getDrawableVertices：x*PPU + W/2、-y*PPU + H/2），
+// 確保與實際繪製位置一致；再乘上 internalModel.localTransform 對齊 model 本地空間。
+// 無法計算（API 缺漏、沒有可見 drawable）時回傳 null。
+function computeDrawnBounds(internalModel: any): DrawnBounds | null {
+  try {
+    const core = internalModel?.coreModel;
+    const count: number = core?.getDrawableCount?.() ?? 0;
+    if (!count || typeof internalModel.getDrawableVertices !== "function") {
+      return null;
+    }
+    core.update?.(); // 確保頂點位置為目前參數下的結果
+    const lt = internalModel.localTransform;
+    const a = lt?.a ?? 1;
+    const d = lt?.d ?? 1;
+    const tx = lt?.tx ?? 0;
+    const ty = lt?.ty ?? 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < count; i++) {
+      if (!(core.getDrawableOpacity(i) > 0)) continue; // 隱藏的 drawable 不算
+      const v: ArrayLike<number> = internalModel.getDrawableVertices(i);
+      for (let k = 0; k + 1 < v.length; k += 2) {
+        const x = v[k] * a + tx;
+        const y = v[k + 1] * d + ty;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!(maxX > minX && maxY > minY)) return null;
+    return { minX, minY, maxX, maxY };
+  } catch (_) {
+    return null;
+  }
+}
+
 export default function Live2DPanel({
   modelUrl,
   className,
@@ -153,6 +196,15 @@ export default function Live2DPanel({
         forcePriorityRef.current = MotionPriority.FORCE;
         applyEmotion(model, latestEmotionRef.current);
 
+        // 顏如玉：以實際繪製邊界取代畫布矩形來定位；算不出來就退回畫布矩形並警告一次
+        let yanruyuBounds: DrawnBounds | null = null;
+        if (isYanruyuUrl(abs)) {
+          yanruyuBounds = computeDrawnBounds(model.internalModel);
+          if (!yanruyuBounds) {
+            console.warn("[Live2DPanel] 無法計算顏如玉繪製邊界，退回畫布矩形定位");
+          }
+        }
+
         // 將模型加入舞台（先隱藏：載入初期 width/height 還沒就緒，
         // 直接定位會算出爆炸大的縮放、畫面只剩鞋子；等尺寸可信再亮相）
         model.visible = false;
@@ -172,13 +224,27 @@ export default function Live2DPanel({
           // 模型尺寸未就緒（載入中）就先不定位、保持隱藏，等下一幀再試
           if (!(baseW > 10 && baseH > 10)) return;
 
-          const hasAnchor = (model as any)?.anchor?.set;
-          if (hasAnchor) model.anchor.set(0.5, 1);
-          else model.pivot?.set?.(baseW / 2, baseH);
+          if (!yanruyuBounds) {
+            const hasAnchor = (model as any)?.anchor?.set;
+            if (hasAnchor) model.anchor.set(0.5, 1);
+            else model.pivot?.set?.(baseW / 2, baseH);
+          }
 
-          const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
-          model.scale.set(scale > 0 ? scale : 0.5);
-          model.position.set(w / 2, h * 0.98);
+          if (yanruyuBounds) {
+            // 顏如玉：依實際繪製內容的邊界定位（左上角為原點），內容水平置中、底部貼齊
+            const cw = yanruyuBounds.maxX - yanruyuBounds.minX;
+            const ch = yanruyuBounds.maxY - yanruyuBounds.minY;
+            const cx = (yanruyuBounds.minX + yanruyuBounds.maxX) / 2;
+            const sc = Math.min((w * 0.9) / cw, (h * 0.95) / ch);
+            model.anchor?.set?.(0, 0);
+            model.pivot?.set?.(0, 0);
+            model.scale.set(sc > 0 ? sc : 0.5);
+            model.position.set(w / 2 - cx * sc, h * 0.98 - yanruyuBounds.maxY * sc);
+          } else {
+            const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
+            model.scale.set(scale > 0 ? scale : 0.5);
+            model.position.set(w / 2, h * 0.98);
+          }
           if (!revealed) {
             revealed = true;
             model.visible = true;
