@@ -378,6 +378,31 @@
   margin-top: 0.2rem;
 }
 
+/* 回覆裡的 Markdown 標題：比內文略大、粗體，跟著 A+/A- 的字級走 */
+.message-markdown .message-heading {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.message-markdown .message-heading-1 {
+  font-size: 1.15em;
+}
+.message-markdown .message-heading-2 {
+  font-size: 1.08em;
+}
+.message-markdown .message-heading-3 {
+  font-size: 1em;
+}
+/* 標題與上一段之間多留一點空間、和它底下的段落或清單貼近，讀起來才像分節 */
+.message-markdown * + .message-heading {
+  margin-top: 0.35rem;
+}
+.message-markdown .message-heading + p,
+.message-markdown .message-heading + ul,
+.message-markdown .message-heading + ol {
+  margin-top: -0.4rem;
+}
+
 .message-link {
   color: var(--color-accent-text);
   text-decoration: underline;

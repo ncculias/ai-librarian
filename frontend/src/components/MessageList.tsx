@@ -8,6 +8,7 @@ import {
   Square,
   Volume2,
 } from "lucide-react";
+import { parseMarkdownBlocks } from "./markdownBlocks";
 
 type ReplySource = { tool: string; label: string; urls: string[] };
 
@@ -154,8 +155,6 @@ function ReplyActions({
   );
 }
 
-const orderedListPattern = /^\d+\.\s+/;
-const unorderedListPattern = /^[-*]\s+/;
 const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 // Markdown 自動連結 <https://...>：顯示時去掉尖括號
 const autolinkPattern = /<(https?:\/\/[^\s>]+)>/g;
@@ -245,49 +244,31 @@ function renderParagraph(text: string, key: string) {
 }
 
 function renderMarkdownContent(content: string) {
-  const blocks = content
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
-  return blocks.map((block, blockIndex) => {
-    const lines = block.split("\n").filter(Boolean);
-    const isOrderedList =
-      lines.length > 1 && lines.every((line) => orderedListPattern.test(line));
-    const isUnorderedList =
-      lines.length > 1 && lines.every((line) => unorderedListPattern.test(line));
-
-    if (isOrderedList) {
+  return parseMarkdownBlocks(content).map((block, blockIndex) => {
+    if (block.type === "heading") {
+      const Tag = `h${block.level + 2}` as "h3" | "h4" | "h5";
       return (
-        <ol
-          key={`ordered-${blockIndex}`}
-          className="message-list list-decimal space-y-1 pl-5"
-        >
-          {lines.map((line, itemIndex) => (
-            <li key={`ordered-${blockIndex}-${itemIndex}`}>
-              {renderInlineMarkdown(line.replace(orderedListPattern, ""))}
-            </li>
-          ))}
-        </ol>
+        <Tag key={`heading-${blockIndex}`} className={`message-heading message-heading-${block.level}`}>
+          {renderInlineMarkdown(block.text)}
+        </Tag>
       );
     }
 
-    if (isUnorderedList) {
+    if (block.type === "list") {
+      const ListTag = block.ordered ? "ol" : "ul";
       return (
-        <ul
-          key={`unordered-${blockIndex}`}
-          className="message-list list-disc space-y-1 pl-5"
+        <ListTag
+          key={`list-${blockIndex}`}
+          className={`message-list ${block.ordered ? "list-decimal" : "list-disc"} space-y-1 pl-5`}
         >
-          {lines.map((line, itemIndex) => (
-            <li key={`unordered-${blockIndex}-${itemIndex}`}>
-              {renderInlineMarkdown(line.replace(unorderedListPattern, ""))}
-            </li>
+          {block.items.map((item, itemIndex) => (
+            <li key={`list-${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
           ))}
-        </ul>
+        </ListTag>
       );
     }
 
-    return renderParagraph(block, `paragraph-${blockIndex}`);
+    return renderParagraph(block.lines.join("\n"), `paragraph-${blockIndex}`);
   });
 }
 
