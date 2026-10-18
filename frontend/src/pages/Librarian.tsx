@@ -27,7 +27,7 @@ import Live2DArea from "../components/Live2DArea";
 import ToolsSection from "../components/ToolsSection";
 import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
-import ConfigModal from "../components/ConfigModal";
+import ConfigModal, { type ConfigDraft } from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
 import {
   DEFAULT_CHARACTER_VIEW,
@@ -147,10 +147,23 @@ export default function Librarian() {
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
-  const [characterView, setCharacterView] = useState<CharacterView>(
-    DEFAULT_CHARACTER_VIEW,
-  );
-  const [layout, setLayout] = useState<LayoutMode>(DEFAULT_LAYOUT_MODE);
+  // 人物顯示 / 版面:首次渲染前就從本機設定讀入,避免先閃一幀預設版面
+  const [characterView, setCharacterView] = useState<CharacterView>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aiConfig") ?? "null");
+      return parseCharacterView(saved?.characterView);
+    } catch {
+      return DEFAULT_CHARACTER_VIEW;
+    }
+  });
+  const [layout, setLayout] = useState<LayoutMode>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aiConfig") ?? "null");
+      return parseLayoutMode(saved?.layout);
+    } catch {
+      return DEFAULT_LAYOUT_MODE;
+    }
+  });
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [chatMode, setChatMode] =
     useState<(typeof chatModes)[number]["id"]>("general");
@@ -191,16 +204,7 @@ export default function Librarian() {
     useState<"idle" | "playing">("idle");
 
   // 設定視窗按「儲存並套用」：一次接收整份草稿寫回（打字過程不再重繪整頁）
-  const applySettings = (draft: {
-    systemPrompt: string;
-    temperature: number;
-    maxTokens: number;
-    motionSpeed: number;
-    characterView: CharacterView;
-    layout: LayoutMode;
-    persona: string;
-    personaModules: PersonaModuleSet;
-  }) => {
+  const applySettings = (draft: ConfigDraft) => {
     const t = Math.min(1, Math.max(0, Number(draft.temperature) || 0));
     const m = Math.max(1, Math.floor(Number(draft.maxTokens) || 1));
     const s = Math.min(2.5, Math.max(0.5, Number(draft.motionSpeed) || 1));
@@ -248,9 +252,6 @@ export default function Librarian() {
       if (typeof saved.maxTokens === "number") setMaxTokens(saved.maxTokens);
       if (typeof saved.motionSpeed === "number")
         setMotionSpeed(Math.min(2.5, Math.max(0.5, saved.motionSpeed)));
-      // 人物顯示 / 版面:不合法或缺漏的值由 parse 退回預設
-      setCharacterView(parseCharacterView(saved.characterView));
-      setLayout(parseLayoutMode(saved.layout));
       // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，落回新預設
       if (
         typeof saved.model === "string" &&

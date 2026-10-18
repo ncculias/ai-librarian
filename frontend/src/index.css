@@ -342,8 +342,10 @@
 
 /* 上下版面：對話卡壓在人物區上，半透明透出人物，氣泡維持不透明 */
 .layout-stacked-stage { height: 60vh; }
-/* 8rem 為頁首預留高度，讓輸入框維持在首屏內 */
-.layout-stacked-chat { height: calc(70vh - 8rem); margin-top: -30vh; position: relative; z-index: 20; }
+/* 8rem 為頁首預留高度，讓輸入框維持在首屏內；
+   但矮筆電螢幕（內高約 650px）扣掉後訊息區幾乎不剩空間，
+   所以設 26rem 下限，寧可在該情況下多一段頁面捲動 */
+.layout-stacked-chat { height: max(calc(70vh - 8rem), 26rem); margin-top: -30vh; position: relative; z-index: 20; }
 /* 半透明與模糊放在 ::before 上：backdrop-filter 若直接加在卡片上，
    會讓卡片內 position: fixed 的彈窗/Toast 以卡片而非視窗為定位基準 */
 .chat-overlay {

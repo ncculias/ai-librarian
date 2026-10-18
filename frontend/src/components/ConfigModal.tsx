@@ -431,7 +431,7 @@ export default function ConfigModal({
           <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
             角色動作速度{" "}
             <span className="text-[var(--color-text-muted)]">
-              (1 = 原速,目前 {draft.motionSpeed.toFixed(1)} 倍)
+              (1 = 原速,目前 {draft.motionSpeed.toFixed(1)} 倍) (目前只套用顏如玉)
             </span>
           </label>
           <input
@@ -450,6 +450,7 @@ export default function ConfigModal({
               {
                 key: "characterView",
                 label: "人物顯示",
+                hint: "(目前只套用顏如玉)",
                 options: [
                   { id: "full", label: "全身" },
                   { id: "half", label: "半身" },
@@ -458,6 +459,7 @@ export default function ConfigModal({
               {
                 key: "layout",
                 label: "版面",
+                hint: "",
                 options: [
                   { id: "side", label: "左右並排" },
                   { id: "stacked", label: "上下（人物在後）" },
@@ -468,6 +470,14 @@ export default function ConfigModal({
             <div key={group.key}>
               <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
                 {group.label}
+                {group.hint && (
+                  <>
+                    {" "}
+                    <span className="text-[var(--color-text-muted)]">
+                      {group.hint}
+                    </span>
+                  </>
+                )}
               </label>
               <div className="mb-2 flex gap-2">
                 {group.options.map((o) => (
