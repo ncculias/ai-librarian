@@ -21,12 +21,14 @@ import {
   Square,
   SlidersHorizontal,
   MessageCircleQuestionMark,
+  ChevronUp,
 } from "lucide-react";
 
 import Live2DArea from "../components/Live2DArea";
 import ToolsSection from "../components/ToolsSection";
 import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
+import ChatModeMenu from "../components/ChatModeMenu";
 import ConfigModal, { type ConfigDraft } from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED, isYanruyuUrl } from "../components/live2d/yanruyu";
 import type { MouthSource } from "../components/live2d/lipsync";
@@ -91,6 +93,9 @@ const chatModes = [
     description: "以書籍資料整理重點與閱讀方向。",
   },
 ] as const;
+
+// 模式列收合狀態的 localStorage key
+const MODE_BAR_KEY = "chatModeBarCollapsed";
 
 const bookOutputModes = [
   {
@@ -173,6 +178,22 @@ export default function Librarian() {
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [chatMode, setChatMode] =
     useState<(typeof chatModes)[number]["id"]>("general");
+  // 模式列收合狀態：存 localStorage（"1" = 收合；其他/缺值/例外 = 展開）。
+  // 用惰性初始化，重新整理後直接落在存檔狀態，不會閃一下。
+  const [isModeBarCollapsed, setIsModeBarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(MODE_BAR_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(MODE_BAR_KEY, isModeBarCollapsed ? "1" : "0");
+    } catch {
+      // localStorage 不可用時忽略，僅本次有效
+    }
+  }, [isModeBarCollapsed]);
   const [bookOutputMode, setBookOutputMode] =
     useState<(typeof bookOutputModes)[number]["id"]>("text");
   const [storyTone, setStoryTone] = useState(storySettings.tone[0]);
@@ -581,6 +602,14 @@ export default function Librarian() {
           </div>
 
           <div className="flex items-center gap-2">
+            {isModeBarCollapsed && (
+              <ChatModeMenu
+                modes={chatModes}
+                value={chatMode}
+                onChange={(id) => setChatMode(id as typeof chatMode)}
+                onExpand={() => setIsModeBarCollapsed(false)}
+              />
+            )}
             {messages.some((m) => m.kind !== "greeting") && (
               <div className="relative">
                 <Popover
@@ -684,37 +713,60 @@ export default function Librarian() {
           </div>
         </header>
 
-        <div className="mb-3 grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
-          {chatModes.map((mode) => {
-            const active = chatMode === mode.id;
+        {!isModeBarCollapsed && (
+          <div className="mb-3 flex items-start gap-2">
+            <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+              {chatModes.map((mode) => {
+                const active = chatMode === mode.id;
 
-            return (
-              <Popover
-                key={mode.id}
-                className="w-full"
-                content={
-                  <div className="text-sm text-[var(--color-text-secondary)]">
-                    {mode.description}
-                  </div>
-                }
+                return (
+                  <Popover
+                    key={mode.id}
+                    className="w-full"
+                    content={
+                      <div className="text-sm text-[var(--color-text-secondary)]">
+                        {mode.description}
+                      </div>
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setChatMode(mode.id)}
+                      className={`flex w-full items-center justify-center rounded-xl border px-4 py-1.5 text-center transition hover:text-[var(--color-text-primary)] ${
+                        active
+                          ? "border-[var(--color-accent-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
+                          : "border-[var(--color-border)] bg-[var(--color-bg-panel)] text-[var(--color-text-secondary)]"
+                      }`}
+                    >
+                      <div className="ui-tab font-semibold">
+                        {mode.label}
+                      </div>
+                    </button>
+                  </Popover>
+                );
+              })}
+            </div>
+            <Popover
+              content={
+                <div>
+                  <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
+                    收合模式列
+                  </p>
+                  <p>騰出對話空間；收起後可從右上角的模式圖示切換。</p>
+                </div>
+              }
+            >
+              <button
+                type="button"
+                onClick={() => setIsModeBarCollapsed(true)}
+                className="theme-icon-button rounded-lg p-2"
+                aria-label="收合模式列"
               >
-                <button
-                  type="button"
-                  onClick={() => setChatMode(mode.id)}
-                  className={`flex w-full items-center justify-center rounded-xl border px-4 py-1.5 text-center transition hover:text-[var(--color-text-primary)] ${
-                    active
-                      ? "border-[var(--color-accent-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
-                      : "border-[var(--color-border)] bg-[var(--color-bg-panel)] text-[var(--color-text-secondary)]"
-                  }`}
-                >
-                  <div className="ui-tab font-semibold">
-                    {mode.label}
-                  </div>
-                </button>
-              </Popover>
-            );
-          })}
-        </div>
+                <ChevronUp className="h-5 w-5" />
+              </button>
+            </Popover>
+          </div>
+        )}
 
         {chatMode === "book-guide" && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
