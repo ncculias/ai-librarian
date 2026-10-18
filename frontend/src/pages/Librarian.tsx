@@ -197,6 +197,8 @@ export default function Librarian() {
   // 展開模式列後,把焦點交給「收合」鈕(原本的「展開」選單已卸載);首次掛載不搶焦點
   const collapseBtnRef = useRef<HTMLButtonElement>(null);
   const modeBarFirstRunRef = useRef(true);
+  // 使用者在本次造訪中按過「收合」才把焦點交給標題列圖示;從 localStorage 載入的收合狀態不搶焦點
+  const modeBarUserCollapsedRef = useRef(false);
   useEffect(() => {
     if (modeBarFirstRunRef.current) {
       modeBarFirstRunRef.current = false;
@@ -618,7 +620,7 @@ export default function Librarian() {
                 value={chatMode}
                 onChange={(id) => setChatMode(id as typeof chatMode)}
                 onExpand={() => setIsModeBarCollapsed(false)}
-                autoFocus
+                autoFocus={modeBarUserCollapsedRef.current}
               />
             )}
             {messages.some((m) => m.kind !== "greeting") && (
@@ -771,7 +773,10 @@ export default function Librarian() {
               <button
                 ref={collapseBtnRef}
                 type="button"
-                onClick={() => setIsModeBarCollapsed(true)}
+                onClick={() => {
+                  modeBarUserCollapsedRef.current = true;
+                  setIsModeBarCollapsed(true);
+                }}
                 className="theme-icon-button rounded-lg p-2"
                 aria-label="收合模式列"
               >
