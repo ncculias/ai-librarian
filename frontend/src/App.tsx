@@ -32,7 +32,14 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
 
-          <Route path="/librarian" element={<Librarian />} />
+          <Route
+            path="/librarian"
+            element={<Librarian key="general" page="general" />}
+          />
+          <Route
+            path="/book-guide"
+            element={<Librarian key="book-guide" page="book-guide" />}
+          />
           <Route path="/picture-book" element={<PictureBook />} />
           <Route path="/my-story-book" element={<MyStoryBook />} />
 

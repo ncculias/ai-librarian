@@ -10,6 +10,11 @@ const navItems = [
     icon: MessageCircleMore,
   },
   {
+    to: "/book-guide",
+    label: "書籍介紹",
+    icon: BookOpen,
+  },
+  {
     to: "/my-story-book",
     label: "繪本生成",
     icon: BookImage,

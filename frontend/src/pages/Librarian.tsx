@@ -21,14 +21,12 @@ import {
   Square,
   SlidersHorizontal,
   MessageCircleQuestionMark,
-  ChevronUp,
 } from "lucide-react";
 
 import Live2DArea from "../components/Live2DArea";
 import ToolsSection from "../components/ToolsSection";
 import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
-import ChatModeMenu from "../components/ChatModeMenu";
 import ConfigModal, { type ConfigDraft } from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED, isYanruyuUrl } from "../components/live2d/yanruyu";
 import type { MouthSource } from "../components/live2d/lipsync";
@@ -50,7 +48,11 @@ import Popover from "../components/Popover";
 import Toast from "../components/Toast";
 
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
-import useLLMStream, { DEFAULT_GREETING } from "../hooks/useLLMStream";
+import useLLMStream, {
+  BOOK_GUIDE_GREETING,
+  DEFAULT_GREETING,
+} from "../hooks/useLLMStream";
+import type { ChatPage } from "./chatPage";
 import { availableModels, defaultModel } from "../data/models";
 import {
   BOOK_GUIDE_INSTRUCTION,
@@ -72,22 +74,6 @@ const toolIconMap: Record<string, ElementType> = {
   google_books: Bookmark,
   open_weather_map: CloudSun,
 };
-
-const chatModes = [
-  {
-    id: "general",
-    label: "一般問答",
-    description: "一般問題、搜尋與推薦。",
-  },
-  {
-    id: "book-guide",
-    label: "書籍介紹",
-    description: "以書籍資料整理重點與閱讀方向。",
-  },
-] as const;
-
-// 模式列收合狀態的 localStorage key
-const MODE_BAR_KEY = "chatModeBarCollapsed";
 
 const bookOutputModes = [
   {
@@ -132,7 +118,9 @@ const storyTonePitch: Record<string, number> = {
   活潑: 1.12,
 };
 
-export default function Librarian() {
+export default function Librarian({ page }: { page: ChatPage }) {
+  // 兩頁共用同一個元件，由路由決定模式；App.tsx 以 key 讓兩頁各自獨立掛載
+  const isBookGuide = page === "book-guide";
   const [modelUrl, setModelUrl] = useState<string>("");
   const [emotionToken, setEmotionToken] = useState<string | null>(null);
 
@@ -167,35 +155,6 @@ export default function Librarian() {
     }
   });
   const [currentModel, setCurrentModel] = useState(defaultModel);
-  const [chatMode, setChatMode] =
-    useState<(typeof chatModes)[number]["id"]>("general");
-  // 模式列收合狀態：存 localStorage（"1" = 收合；其他/缺值/例外 = 展開）。
-  // 用惰性初始化，重新整理後直接落在存檔狀態，不會閃一下。
-  const [isModeBarCollapsed, setIsModeBarCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(MODE_BAR_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(MODE_BAR_KEY, isModeBarCollapsed ? "1" : "0");
-    } catch {
-      // localStorage 不可用時忽略，僅本次有效
-    }
-  }, [isModeBarCollapsed]);
-  // 展開模式列後,把焦點交給「收合」鈕(原本的「展開」選單已卸載);只在 true→false 的實際轉換時處理,掛載(含 StrictMode 重複執行)不搶焦點
-  const collapseBtnRef = useRef<HTMLButtonElement>(null);
-  const prevCollapsedRef = useRef(isModeBarCollapsed);
-  // 使用者在本次造訪中按過「收合」才把焦點交給標題列圖示;從 localStorage 載入的收合狀態不搶焦點
-  const modeBarUserCollapsedRef = useRef(false);
-  useEffect(() => {
-    if (prevCollapsedRef.current && !isModeBarCollapsed) {
-      collapseBtnRef.current?.focus({ preventScroll: true });
-    }
-    prevCollapsedRef.current = isModeBarCollapsed;
-  }, [isModeBarCollapsed]);
   const [bookOutputMode, setBookOutputMode] =
     useState<(typeof bookOutputModes)[number]["id"]>("text");
   const [storyTone, setStoryTone] = useState(storySettings.tone[0]);
@@ -313,7 +272,7 @@ export default function Librarian() {
   const modeSystemPrompt = [
     systemPrompt,
     personaPrompt,
-    chatMode === "book-guide" ? bookGuidePrompt : "",
+    isBookGuide ? bookGuidePrompt : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -327,8 +286,8 @@ export default function Librarian() {
     pendingStatus,
     handleSend,
   } = useLLMStream({
-      sessionKey: "general",
-      greeting: DEFAULT_GREETING,
+      sessionKey: page,
+      greeting: isBookGuide ? BOOK_GUIDE_GREETING : DEFAULT_GREETING,
       systemPrompt: modeSystemPrompt,
       temperature,
       maxTokens,
@@ -337,11 +296,11 @@ export default function Librarian() {
       onEmotion: (emo) => setEmotionToken(emo), // Model 回傳角色情緒
     });
 
-  const suggestedQuestions = chatMode === "general" ? generalPrompts : [];
+  const suggestedQuestions = !isBookGuide ? generalPrompts : [];
   const inputPlaceholder =
-    chatMode === "book-guide" && bookOutputMode === "story"
+    isBookGuide && bookOutputMode === "story"
       ? "輸入書名，或請我用說故事方式介紹一本書..."
-      : chatMode === "book-guide"
+      : isBookGuide
         ? "輸入書名或主題，我會整理成書籍介紹..."
         : "輸入問題...";
   const latestAssistantIndex = messages.reduce(
@@ -352,7 +311,7 @@ export default function Librarian() {
   const latestAssistantMessage =
     latestAssistantIndex >= 0 ? messages[latestAssistantIndex] : null;
   const canShowVoiceControls =
-    chatMode === "book-guide" &&
+    isBookGuide &&
     bookOutputMode === "story" &&
     !loading &&
     latestAssistantMessage !== null;
@@ -508,7 +467,7 @@ export default function Librarian() {
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const downloadChat = (format: "txt" | "csv") => {
     exportChat(format, {
-      page: "聊天問答",
+      page: isBookGuide ? "書籍介紹" : "聊天問答",
       info: [
         ["AI 人設", personaLabel || "一般"],
         ["模型", currentModel],
@@ -560,7 +519,7 @@ export default function Librarian() {
 
   useEffect(() => {
     stopVoice();
-  }, [bookOutputMode, chatMode]);
+  }, [bookOutputMode]);
 
   // 上下版面僅在未放大對話區時生效；放大時維持原本行為
   const isStacked = layout === "stacked" && !isChatExpanded;
@@ -612,15 +571,6 @@ export default function Librarian() {
           </div>
 
           <div className="flex items-center gap-2">
-            {isModeBarCollapsed && (
-              <ChatModeMenu
-                modes={chatModes}
-                value={chatMode}
-                onChange={(id) => setChatMode(id as typeof chatMode)}
-                onExpand={() => setIsModeBarCollapsed(false)}
-                autoFocus={modeBarUserCollapsedRef.current}
-              />
-            )}
             {messages.some((m) => m.kind !== "greeting") && (
               <div className="relative">
                 <Popover
@@ -725,66 +675,7 @@ export default function Librarian() {
           </div>
         </header>
 
-        {!isModeBarCollapsed && (
-          <div className="mb-3 flex items-start gap-2">
-            <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
-              {chatModes.map((mode) => {
-                const active = chatMode === mode.id;
-
-                return (
-                  <Popover
-                    key={mode.id}
-                    className="w-full"
-                    content={
-                      <div className="text-sm text-[var(--color-text-secondary)]">
-                        {mode.description}
-                      </div>
-                    }
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setChatMode(mode.id)}
-                      className={`flex w-full items-center justify-center rounded-xl border px-4 py-1.5 text-center transition hover:text-[var(--color-text-primary)] ${
-                        active
-                          ? "border-[var(--color-accent-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
-                          : "border-[var(--color-border)] bg-[var(--color-bg-panel)] text-[var(--color-text-secondary)]"
-                      }`}
-                    >
-                      <div className="ui-tab font-semibold">
-                        {mode.label}
-                      </div>
-                    </button>
-                  </Popover>
-                );
-              })}
-            </div>
-            <Popover
-              content={
-                <div>
-                  <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
-                    收合模式列
-                  </p>
-                  <p>騰出對話空間；收起後可從右上角的模式圖示切換。</p>
-                </div>
-              }
-            >
-              <button
-                ref={collapseBtnRef}
-                type="button"
-                onClick={() => {
-                  modeBarUserCollapsedRef.current = true;
-                  setIsModeBarCollapsed(true);
-                }}
-                className="theme-icon-button rounded-lg p-2"
-                aria-label="收合模式列"
-              >
-                <ChevronUp className="h-5 w-5" />
-              </button>
-            </Popover>
-          </div>
-        )}
-
-        {chatMode === "book-guide" && (
+        {isBookGuide && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {bookOutputModes.map((mode) => {
               const active = bookOutputMode === mode.id;
