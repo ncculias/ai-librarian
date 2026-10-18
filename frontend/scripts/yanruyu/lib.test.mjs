@@ -14,6 +14,17 @@ test("mergeExpressions 相加重疊參數、固定 fade 0", () => {
   ]);
 });
 
+test("mergeExpressions 遇到非 Add 的 Blend 會丟錯並指出 Id", () => {
+  assert.throws(
+    () => mergeExpressions([{ Parameters: [{ Id: "PARAM_X", Value: 1, Blend: "Multiply" }] }]),
+    /PARAM_X/,
+  );
+  assert.throws(
+    () => mergeExpressions([{ Parameters: [{ Id: "PARAM_Y", Value: 1 }] }]),
+    /PARAM_Y/,
+  );
+});
+
 test("asciiName 去掉類別前綴與空格", () => {
   assert.equal(asciiName("(MTN) happy.motion3.json"), "happy.motion3.json");
   assert.equal(asciiName("(face) normal.exp3.json"), "normal.exp3.json");

@@ -15,7 +15,11 @@ export const VENDOR_EXPRESSION_FILES = {
 export function mergeExpressions(parts) {
   const sums = new Map();
   for (const part of parts) {
-    for (const { Id, Value } of part.Parameters) {
+    for (const { Id, Value, Blend } of part.Parameters) {
+      // 以相加合成只在 Blend 為 Add 時才成立(Multiply/Overwrite 語意不同)
+      if (Blend !== "Add") {
+        throw new Error(`mergeExpressions: 參數 ${Id} 的 Blend 為 ${JSON.stringify(Blend)},僅支援 "Add"`);
+      }
       sums.set(Id, (sums.get(Id) ?? 0) + Value);
     }
   }

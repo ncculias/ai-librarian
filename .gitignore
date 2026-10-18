@@ -14,3 +14,5 @@
 
 # Live2D vendor model runtime dir (license forbids redistribution; deployed via rsync)
 frontend/public/yanruyu/
+# 廠商原始交付目錄(同樣禁止散布)
+frontend/public/顏如玉/
