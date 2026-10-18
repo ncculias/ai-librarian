@@ -129,7 +129,10 @@ export default function Librarian() {
   const [selected, setSelected] = useState<Tool | null>(null);
 
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    text: string;
+    variant?: "success" | "error";
+  } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
@@ -206,7 +209,7 @@ export default function Librarian() {
     );
     localStorage.setItem("personaModules_v2", JSON.stringify(draft.personaModules));
 
-    setToast("設定已保存並套用");
+    setToast({ text: "設定已保存並套用" });
   };
 
   useEffect(() => {
@@ -290,8 +293,12 @@ export default function Librarian() {
     !loading &&
     latestAssistantMessage !== null;
 
-  const playVoice = () => {
-    const text = latestAssistantMessage?.content.trim();
+  // 正在朗讀的訊息索引(每則回覆下方的朗讀鈕用;null = 沒在念)
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+
+  // 朗讀指定索引的回覆(瀏覽器內建語音,免費無額度;同一時間只念一則)
+  const speakMessage = (index: number) => {
+    const text = messages[index]?.content.trim();
     if (!text || !("speechSynthesis" in window)) return;
 
     // Chrome 引擎若卡在 paused 狀態，cancel/speak 都會被無視：先強制 resume 解鎖
@@ -304,11 +311,51 @@ export default function Librarian() {
     utterance.lang = "zh-TW";
     utterance.rate = storyPaceRate[storyPace] ?? 1;
     utterance.pitch = storyTonePitch[storyTone] ?? 1;
-    utterance.onend = () => setVoiceStatus("idle");
-    utterance.onerror = () => setVoiceStatus("idle");
+    const done = () => {
+      setVoiceStatus("idle");
+      setSpeakingIndex((cur) => (cur === index ? null : cur));
+    };
+    utterance.onend = done;
+    utterance.onerror = done;
 
     window.speechSynthesis.speak(utterance);
     setVoiceStatus("playing");
+    setSpeakingIndex(index);
+  };
+
+  // 複製某則回覆的文字到剪貼簿:先用 Clipboard API,不行再退回舊式 execCommand;回傳是否成功
+  const copyMessage = async (index: number): Promise<boolean> => {
+    const text = messages[index]?.content ?? "";
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    setToast(
+      ok
+        ? { text: "已複製回覆內容" }
+        : { text: "無法複製，請手動選取文字", variant: "error" },
+    );
+    return ok;
+  };
+
+  // 說故事模式的播放鈕:念最新一則回覆(與每則回覆的朗讀鈕共用同一套語音邏輯)
+  const playVoice = () => {
+    if (latestAssistantIndex >= 0) speakMessage(latestAssistantIndex);
   };
 
   /* 下載對話（spec：docs/2026-10-07_下載對話_spec.md）：
@@ -337,6 +384,7 @@ export default function Librarian() {
     } catch (_) {}
     window.speechSynthesis.cancel();
     setVoiceStatus("idle");
+    setSpeakingIndex(null);
   };
 
   useEffect(() => {
@@ -580,7 +628,13 @@ export default function Librarian() {
           />
         )}
 
-        {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+        {toast && (
+          <Toast
+            message={toast.text}
+            variant={toast.variant}
+            onDone={() => setToast(null)}
+          />
+        )}
 
         {isVoiceSettingsOpen && (
           <VoiceSettingsModal
@@ -612,6 +666,10 @@ export default function Librarian() {
           followUpQuestions={followUpQuestions}
           pendingStatus={pendingStatus}
           onFollowUpClick={(q) => handleSend(q)}
+          onCopy={copyMessage}
+          onSpeak={speakMessage}
+          onStopSpeak={stopVoice}
+          speakingIndex={speakingIndex}
           assistantActions={
             canShowVoiceControls
               ? {
