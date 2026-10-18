@@ -29,6 +29,7 @@ import ChatInput from "../components/ChatInput";
 import ConfigModal from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
 import Popover from "../components/Popover";
+import Toast from "../components/Toast";
 
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
 import useLLMStream from "../hooks/useLLMStream";
@@ -128,6 +129,7 @@ export default function Librarian() {
   const [selected, setSelected] = useState<Tool | null>(null);
 
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
@@ -204,7 +206,7 @@ export default function Librarian() {
     );
     localStorage.setItem("personaModules_v2", JSON.stringify(draft.personaModules));
 
-    alert("設定已保存並套用");
+    setToast("設定已保存並套用");
   };
 
   useEffect(() => {
@@ -577,6 +579,8 @@ export default function Librarian() {
             }}
           />
         )}
+
+        {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
         {isVoiceSettingsOpen && (
           <VoiceSettingsModal
