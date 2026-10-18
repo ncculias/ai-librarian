@@ -15,6 +15,7 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   sources?: ReplySource[]; // assistant 回覆用過的工具與連結(空 = 沒用外部工具)
+  kind?: "greeting"; // 進站問候語:不顯示來源/免責
 };
 
 // 同一個工具在一輪裡可能被叫多次(例如重試),顯示時合併並去重連結
@@ -360,7 +361,7 @@ export default function MessageList({
                 <div className="message-markdown space-y-3">
                   {renderMarkdownContent(m.content)}
                 </div>
-                <ReplyFooter sources={m.sources} />
+                {m.kind !== "greeting" && <ReplyFooter sources={m.sources} />}
               </>
             ) : (
               m.content

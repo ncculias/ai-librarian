@@ -416,7 +416,7 @@ export default function Librarian() {
         ["模型", currentModel],
       ],
       speakers: { user: "使用者", assistant: "AI 館員" },
-      messages,
+      messages: messages.filter((m) => m.kind !== "greeting"),
       filePrefix: "AI館員對話",
     });
     setIsDownloadMenuOpen(false);
@@ -487,7 +487,7 @@ export default function Librarian() {
           </div>
 
           <div className="flex items-center gap-2">
-            {messages.length > 0 && (
+            {messages.some((m) => m.kind !== "greeting") && (
               <div className="relative">
                 <Popover
                   content={
@@ -706,7 +706,7 @@ export default function Librarian() {
           />
         )}
 
-        {messages.length === 0 && suggestedQuestions.length > 0 && (
+        {!messages.some((m) => m.kind !== "greeting") && suggestedQuestions.length > 0 && (
           <div className="mb-4 flex flex-wrap gap-2">
             {suggestedQuestions.map((q, i) => (
               <button

@@ -9,7 +9,16 @@ type Message = {
   content: string;
   ts?: number;
   sources?: ReplySource[]; // 只有 assistant 有;空陣列代表沒用外部工具
+  kind?: "greeting"; // 進站問候語:只顯示,不送給 AI、不匯出、不掛來源/免責
 };
+
+// 一進網站(對話還是空的)時,AI 館員先打招呼
+export const DEFAULT_GREETING =
+  "您好，我是顏如玉館員，很高興為您服務，請問有什麼可以幫忙的嗎？";
+
+function greetingMessage(): Message {
+  return { role: "assistant", content: DEFAULT_GREETING, kind: "greeting", ts: Date.now() };
+}
 
 // 工具代號 → 顯示名稱(後端 /v1/tools 的 name)
 const TOOL_LABELS: Record<string, string> = {
@@ -60,7 +69,9 @@ export default function useLLMStream({
   currentModel,
   onEmotion,
 }: APIConfig) {
-  const [messages, setMessages] = useState<Message[]>(chatSession.messages);
+  const [messages, setMessages] = useState<Message[]>(() =>
+    chatSession.messages.length > 0 ? chatSession.messages : [greetingMessage()],
+  );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>(
@@ -190,8 +201,9 @@ export default function useLLMStream({
     // 組 API messages
     const messagesForAPI: APIMessage[] = [
       { role: "system", content: systemPrompt },
-      // 只帶最近 HISTORY_LIMIT 則：夠維持對話連貫，又不會撞模型上下文上限
+      // 只帶最近 HISTORY_LIMIT 則：夠維持對話連貫，又不會撞模型上下文上限(問候語不算對話)
       ...messages
+        .filter((m) => m.kind !== "greeting")
         .slice(-HISTORY_LIMIT)
         .map((m) => ({ role: m.role, content: m.content } as APIMessage)),
       userMsg,
