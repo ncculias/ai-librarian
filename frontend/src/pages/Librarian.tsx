@@ -21,6 +21,8 @@ import {
   Square,
   SlidersHorizontal,
   MessageCircleQuestionMark,
+  FileText,
+  AudioLines,
 } from "lucide-react";
 
 import Live2DArea from "../components/Live2DArea";
@@ -619,6 +621,65 @@ export default function Librarian({ page }: { page: ChatPage }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* 書籍介紹頁：輸出方式（文字 / 語音說故事）收成圖示鈕，點一下切換；語音時多一顆語音設定 */}
+            {isBookGuide && (
+              <Popover
+                content={
+                  <div>
+                    <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
+                      輸出方式：{bookOutputMode === "story" ? "語音說故事" : "文字介紹"}
+                    </p>
+                    <p>
+                      {bookOutputMode === "story"
+                        ? "回覆會用說故事的方式介紹，並可播放語音。點一下切回文字介紹。"
+                        : "回覆整理成書籍介紹文字。點一下切換成語音說故事。"}
+                    </p>
+                  </div>
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBookOutputMode((cur) => (cur === "story" ? "text" : "story"))
+                  }
+                  className="theme-icon-button flex items-center rounded-lg p-2"
+                  aria-label={`輸出方式：${bookOutputMode === "story" ? "語音說故事" : "文字介紹"}`}
+                  aria-pressed={bookOutputMode === "story"}
+                >
+                  {bookOutputMode === "story" ? (
+                    <AudioLines className="h-5 w-5" />
+                  ) : (
+                    <FileText className="h-5 w-5" />
+                  )}
+                  <span className="ui-sub ml-1 hidden sm:inline">
+                    {bookOutputMode === "story" ? "語音說故事" : "文字介紹"}
+                  </span>
+                </button>
+              </Popover>
+            )}
+            {isBookGuide && bookOutputMode === "story" && (
+              <Popover
+                content={
+                  <div>
+                    <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
+                      語音輸出設定
+                    </p>
+                    <p>
+                      目前：{storyTone}語氣，{storyPace}速
+                    </p>
+                  </div>
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsVoiceSettingsOpen(true)}
+                  className="theme-icon-button rounded-lg p-2"
+                  aria-label="開啟語音輸出設定"
+                >
+                  <SlidersHorizontal className="h-5 w-5" />
+                </button>
+              </Popover>
+            )}
             {messages.some((m) => m.kind !== "greeting") && (
               <div className="relative">
                 <Popover
@@ -722,53 +783,6 @@ export default function Librarian({ page }: { page: ChatPage }) {
             </Popover>
           </div>
         </header>
-
-        {isBookGuide && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            {bookOutputModes.map((mode) => {
-              const active = bookOutputMode === mode.id;
-
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setBookOutputMode(mode.id)}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition hover:text-[var(--color-text-primary)] ${
-                    active
-                      ? "theme-button-accent theme-button-accent-active"
-                      : "theme-button-secondary"
-                  }`}
-                >
-                  {mode.label}
-                </button>
-              );
-            })}
-
-            {bookOutputMode === "story" && (
-              <Popover
-                content={
-                  <div>
-                    <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
-                      語音輸出設定
-                    </p>
-                    <p>
-                      目前：{storyTone}語氣，{storyPace}速
-                    </p>
-                  </div>
-                }
-              >
-                <button
-                  type="button"
-                  onClick={() => setIsVoiceSettingsOpen(true)}
-                  className="theme-icon-button rounded-full p-2"
-                  aria-label="開啟語音輸出設定"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                </button>
-              </Popover>
-            )}
-          </div>
-        )}
 
         {isConfigOpen && (
           <ConfigModal
