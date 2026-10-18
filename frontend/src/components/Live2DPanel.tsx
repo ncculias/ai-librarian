@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
+import { isYanruyuUrl, mapEmotion, shouldApply } from "./live2d/yanruyu";
+import type { YanruyuEmotion } from "./live2d/yanruyu";
 
 // Live2DPanel 輸入參數
 type Props = {
@@ -69,6 +71,13 @@ export default function Live2DPanel({
   const ponchoPoseTargetRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoPoseCurrentRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoEmotionRef = useRef<string>("neutral");
+  // 顏如玉目前已套用的情緒（模型重建時歸零，才能在載入後重套）
+  const yanruyuEmotionRef = useRef<YanruyuEmotion | null>(null);
+  // 最新的情緒 token（供模型載入完成後補套用，避免重建後情緒遺失）
+  const latestEmotionRef = useRef(emotionToken);
+  // MotionPriority.FORCE（動態載入引擎後才取得；3 為其預設值）
+  const forcePriorityRef = useRef<number>(3);
+  latestEmotionRef.current = emotionToken;
 
   // 設定視窗等遮罩開啟時暫停動畫：背景 60fps 渲染會與前景 UI 搶資源
   useEffect(() => {
@@ -89,6 +98,10 @@ export default function Live2DPanel({
     let tickFn: ((dt: number) => void) | null = null;
     let destroyed = false;
 
+    // 模型將重新建立，舊模型與其「已套用情緒」作廢
+    currentModelRef.current = null;
+    yanruyuEmotionRef.current = null;
+
     // async/await：初始化 Pixi + 載入 Live2D
     const mount = async () => {
       try {
@@ -97,7 +110,9 @@ export default function Live2DPanel({
 
         // 動態載入 Live2D 模組
 
-        const { Live2DModel } = await import("pixi-live2d-display/cubism4");
+        const { Live2DModel, MotionPriority } = await import(
+          "pixi-live2d-display/cubism4"
+        );
 
         // 建立 PIXI Application
         app = new PIXI.Application({
@@ -127,6 +142,16 @@ export default function Live2DPanel({
         currentModelRef.current = model;
 
         if (destroyed) return;
+
+        // 顏如玉：動作本身已含眨眼與呼吸，關掉引擎自帶的避免疊加
+        if (isYanruyuUrl(abs)) {
+          model.internalModel.eyeBlink = undefined;
+          model.internalModel.breath = undefined;
+        }
+
+        // 模型載入期間可能已收到情緒，載入完成後補套用
+        forcePriorityRef.current = MotionPriority.FORCE;
+        applyEmotion(model, latestEmotionRef.current);
 
         // 將模型加入舞台（先隱藏：載入初期 width/height 還沒就緒，
         // 直接定位會算出爆炸大的縮放、畫面只剩鞋子；等尺寸可信再亮相）
@@ -323,9 +348,22 @@ export default function Live2DPanel({
     };
   }, [modelUrl]);
 
-  useEffect(() => {
-    const model = currentModelRef.current;
-    if (!model || !emotionToken) return;
+  // 依情緒 token 套用表情/動作（模型載入後與 token 變動時皆會呼叫）
+  const applyEmotion = (model: any, token: string | null | undefined) => {
+    if (!model || !token) return;
+    const emotionToken = token;
+
+    if (isYanruyuUrl(modelUrl)) {
+      const next = mapEmotion(token);
+      if (!shouldApply(yanruyuEmotionRef.current, next)) return;
+      yanruyuEmotionRef.current = next;
+      try {
+        model.expression(next);
+        model.internalModel.motionManager.groups.idle = next;
+        model.motion(next, 0, forcePriorityRef.current);
+      } catch (_) {}
+      return;
+    }
 
     const isPoncho = modelUrl.toLowerCase().includes("/poncho/");
     if (isPoncho) {
@@ -457,6 +495,10 @@ export default function Live2DPanel({
     try {
       model.motion(mapping.group, mapping.index);
     } catch (_) {}
+  };
+
+  useEffect(() => {
+    applyEmotion(currentModelRef.current, emotionToken);
   }, [emotionToken]);
 
   return (

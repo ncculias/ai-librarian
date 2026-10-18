@@ -1,5 +1,6 @@
 [
   { "name": "Haru", "url": "/Haru/Haru.model3.json", "tags": ["官方", "男"] },
   { "name": "Poncho", "url": "/poncho/poncho.model3.json" },
-  { "name": "Mia", "url": "/Mia/Haru.model3.json", "tags": ["官方", "男"] }
+  { "name": "Mia", "url": "/Mia/Haru.model3.json", "tags": ["官方", "男"] },
+  { "name": "顏如玉", "url": "/yanruyu/yanruyu.model3.json", "tags": ["客製"] }
 ]
