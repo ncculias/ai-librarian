@@ -9,12 +9,15 @@ import {
 import type { YanruyuEmotion } from "./live2d/yanruyu";
 import { computePlacement } from "./live2d/display";
 import type { CharacterView } from "./live2d/display";
+import { MOUTH_REST_EPSILON, smoothMouth } from "./live2d/lipsync";
+import type { MouthSource } from "./live2d/lipsync";
 
 // Live2DPanel 輸入參數
 type Props = {
   modelUrl: string; // Live2D 模型 JSON 路徑
   motionSpeed?: number; // 動作速度倍率(1 = 原速);目前只套用在顏如玉
   characterView?: CharacterView; // 人物顯示:全身 / 半身(預設 full)
+  mouthSource?: MouthSource | null; // 朗讀口型音源(每幀取開合度);目前只套用在顏如玉,null = 閉嘴
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
   paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）
@@ -115,6 +118,7 @@ export default function Live2DPanel({
   paused = false,
   motionSpeed = 1,
   characterView = "full",
+  mouthSource = null,
   onLoadError,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
@@ -140,6 +144,9 @@ export default function Live2DPanel({
   // 人物顯示(全身/半身)同樣走 ref:切換時只重新 fit,不重建模型
   const characterViewRef = useRef(characterView);
   characterViewRef.current = characterView;
+  // 口型音源同樣走 ref:朗讀開始/結束只換音源,不重建 PIXI app 與模型
+  const mouthSourceRef = useRef(mouthSource);
+  mouthSourceRef.current = mouthSource;
   // 目前模型的 fit 函式(模型載入後才有值),供 characterView 變更時重新定位
   const fitRef = useRef<(() => void) | null>(null);
   // 以 ref 持有最新回呼，避免 effect 因回呼身分改變而重建模型
@@ -289,11 +296,31 @@ export default function Live2DPanel({
         // 顏如玉的動作節奏以倍率加速:推進更多的時間 = 動作播得更快(物理已關閉,不會不穩)
         // 倍率從 ref 讀,設定視窗調整後即時生效、不需重建模型
         const speedApplies = isYanruyuUrl(abs);
+        // 顏如玉嘴巴目前開合度(模型重建即歸零)
+        let mouth = 0;
         tickFn = (dt: number) => {
           // pixi 的 ticker 給的 dt 是「幀數」(60fps 時約 1),但 Live2DModel.update() 要的是毫秒;
           // 顏如玉改用 ticker.deltaMS,動作才會以正確速度播放(舊角色維持原行為)
           const elapsed = speedApplies ? app!.ticker.deltaMS * motionSpeedRef.current : dt;
           model.update?.(elapsed);
+
+          if (speedApplies) {
+            // 顏如玉:朗讀口型。必須在 model.update() 之後寫,才不會被動作覆蓋。
+            // 沒音源且嘴巴已閉合時完全不寫,讓動作檔自己的嘴型不受干擾。
+            const src = mouthSourceRef.current;
+            if (src || mouth > MOUTH_REST_EPSILON) {
+              const raw = src ? src.level() : 0;
+              // 非有限值(NaN/Infinity)當 0,避免壞的一幀讓嘴巴卡住
+              mouth = smoothMouth(mouth, Number.isFinite(raw) ? raw : 0);
+              if (!src && mouth <= MOUTH_REST_EPSILON) mouth = 0;
+              try {
+                model.internalModel?.coreModel?.setParameterValueById?.(
+                  "PARAM_MOUTH_OPEN",
+                  mouth,
+                );
+              } catch (_) {}
+            }
+          }
 
           if (isPoncho) {
             const core = model?.internalModel?.coreModel;

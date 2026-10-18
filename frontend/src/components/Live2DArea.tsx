@@ -5,6 +5,7 @@ import {
   isYanruyuUrl,
   readYanruyuEnv,
 } from "./live2d/yanruyu";
+import type { MouthSource } from "./live2d/lipsync";
 import {
   DEFAULT_CHARACTER_VIEW,
   DEFAULT_LAYOUT_MODE,
@@ -26,6 +27,7 @@ type Props = {
   motionSpeed?: number; // 動作速度倍率,轉交給 Live2DPanel
   characterView?: CharacterView; // 人物顯示:全身 / 半身,轉交給 Live2DPanel
   layout?: LayoutMode; // 版面:左右並排 / 上下(人物在後)
+  mouthSource?: MouthSource | null; // 朗讀口型音源,轉交給 Live2DPanel(不進 key,不會重建模型)
 };
 
 // 從候選清單挑第一個 .model3.json;沒有就退而求其次
@@ -42,6 +44,7 @@ export default function Live2DArea({
   motionSpeed = 1,
   characterView = DEFAULT_CHARACTER_VIEW,
   layout = DEFAULT_LAYOUT_MODE,
+  mouthSource = null,
 }: Props) {
   const isStacked = layout === "stacked";
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
@@ -146,6 +149,7 @@ export default function Live2DArea({
             paused={paused}
             motionSpeed={motionSpeed}
             characterView={characterView}
+            mouthSource={mouthSource}
             onLoadError={handleLoadError}
           />
         )}
