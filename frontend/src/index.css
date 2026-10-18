@@ -342,7 +342,8 @@
 
 /* 上下版面：對話卡壓在人物區上，半透明透出人物，氣泡維持不透明 */
 .layout-stacked-stage { height: 60vh; }
-.layout-stacked-chat { height: 70vh; margin-top: -30vh; position: relative; z-index: 20; }
+/* 8rem 為頁首預留高度，讓輸入框維持在首屏內 */
+.layout-stacked-chat { height: calc(70vh - 8rem); margin-top: -30vh; position: relative; z-index: 20; }
 .chat-overlay {
   background-color: rgba(var(--color-bg-card-rgb), 0.82);
   backdrop-filter: blur(8px);
