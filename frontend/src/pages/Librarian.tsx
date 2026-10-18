@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { mcpTools, type Tool } from "../data/mcpTools";
 import { exportChat } from "../utils/exportChat";
+import { splitForSpeech, stripMarkdownForSpeech } from "../utils/speechText";
 import {
   Clock,
   FlaskConical,
@@ -347,7 +348,10 @@ export default function Librarian({ page }: { page: ChatPage }) {
   // - Gemini 失敗(額度用完、網路問題)時自動退回瀏覽器內建語音,並提示原因
   const [speakLoading, setSpeakLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ttsCacheRef = useRef<Map<number, string>>(new Map()); // 訊息索引 → 音檔 object URL
+  // 長回覆分段合成、邊到邊播：快取鍵 = `${訊息索引}:${段落序}` → 音檔 object URL
+  const ttsCacheRef = useRef<Map<string, string>>(new Map());
+  // 目前這一輪朗讀的識別物件；stopVoice / 新的朗讀會換掉它，讓舊的播放迴圈自行停下
+  const playRunRef = useRef<object | null>(null);
   // 朗讀時驅動顏如玉嘴巴的音源(null = 沒在念,嘴巴閉上)
   const [mouthSource, setMouthSource] = useState<MouthSource | null>(null);
   // 音訊分析失敗的警告只在每次載入頁面時印一次
@@ -389,84 +393,117 @@ export default function Librarian({ page }: { page: ChatPage }) {
     setSpeakingIndex(index);
   };
 
+  // 向後端取一段語音（有快取就直接回），回傳 object URL
+  const fetchSpeechChunk = async (
+    index: number,
+    chunkIndex: number,
+    chunkText: string,
+    signal: AbortSignal,
+  ): Promise<string> => {
+    const key = `${index}:${chunkIndex}`;
+    const cached = ttsCacheRef.current.get(key);
+    if (cached) return cached;
+    const res = await fetch(`${API_BASE}/v1/story-book/speak`, {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: chunkText }),
+    });
+    if (!res.ok) {
+      const detail = await res
+        .json()
+        .then((j) => j?.detail)
+        .catch(() => null);
+      throw new Error(typeof detail === "string" ? detail : `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (unmountedRef.current) {
+      // 卸載清理已跑過，這個 URL 不會再被收，自己收掉
+      URL.revokeObjectURL(url);
+      throw new DOMException("unmounted", "AbortError");
+    }
+    ttsCacheRef.current.set(key, url);
+    return url;
+  };
+
+  // 朗讀一則回覆：先去掉 Markdown 符號、依句子切成小段，第一段幾秒內就開始播，
+  // 播放中預先抓下一段、無縫接續；整篇念完才算結束。長回覆不用等整篇合成（Gemini 整篇合成會逾時）
   const speakMessage = async (index: number) => {
     // 必須在任何 await 之前(仍在點擊手勢內)預先喚醒 AudioContext,Safari 才允許
     warmUpAudioContext();
-    const text = messages[index]?.content.trim();
-    if (!text) return;
+    const raw = messages[index]?.content.trim();
+    if (!raw) return;
+    const text = stripMarkdownForSpeech(raw);
+    const chunks = splitForSpeech(text);
+    if (chunks.length === 0) return;
     stopVoice();
     setSpeakingIndex(index);
     setSpeakLoading(true);
     ttsAbortRef.current?.abort();
     const ttsController = new AbortController();
     ttsAbortRef.current = ttsController;
+    const run = {};
+    playRunRef.current = run;
+    // 這一輪是否還有效：被 stopVoice / 新朗讀取代、或頁面卸載，就靜靜停下
+    const active = () => playRunRef.current === run && !unmountedRef.current;
+
+    const pending: Array<Promise<string> | undefined> = [];
+    const getChunkUrl = (i: number) =>
+      (pending[i] ??= fetchSpeechChunk(index, i, chunks[i], ttsController.signal));
+
+    let source: MouthSource | null = null;
+    const finish = () => {
+      setVoiceStatus("idle");
+      setSpeakingIndex((cur) => (cur === index ? null : cur));
+      setMouthSource((cur) => (cur === source ? null : cur));
+    };
+
     try {
-      let url = ttsCacheRef.current.get(index);
-      if (!url) {
-        const res = await fetch(`${API_BASE}/v1/story-book/speak`, {
-          method: "POST",
-          signal: ttsController.signal,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (unmountedRef.current) return;
-        if (!res.ok) {
-          const detail = await res
-            .json()
-            .then((j) => j?.detail)
-            .catch(() => null);
-          throw new Error(typeof detail === "string" ? detail : `HTTP ${res.status}`);
-        }
-        const blob = await res.blob();
-        if (unmountedRef.current) return;
-        url = URL.createObjectURL(blob);
-        ttsCacheRef.current.set(index, url);
-      }
-      if (unmountedRef.current) {
-        // 已卸載：快取可能在卸載清理之後才寫入，補收掉避免洩漏
-        if (url) {
-          URL.revokeObjectURL(url);
-          ttsCacheRef.current.delete(index);
-        }
-        return;
-      }
       const audio = (audioRef.current ??= new Audio());
-      audio.src = url;
-      audio.playbackRate = storyPaceRate[storyPace] ?? 1;
-      let source: MouthSource | null = null;
-      const done = () => {
-        setVoiceStatus("idle");
-        setSpeakingIndex((cur) => (cur === index ? null : cur));
-        setMouthSource((cur) => (cur === source ? null : cur));
-      };
-      audio.onended = done;
-      audio.onerror = done;
-      await audio.play();
-      if (unmountedRef.current) {
-        audio.pause();
-        return;
-      }
-      // 其他角色沒有口型,不必把音訊接進 Web Audio(也避開 Safari 的 context 風險)
-      if (isYanruyuUrl(modelUrl)) {
-        // 聲音出來後才接音源:analyser 失敗(或 context 未 running)就退回假口型
-        try {
-          source = getAnalyserMouthSource(audio);
-        } catch (e) {
-          if (!lipsyncWarnedRef.current) {
-            lipsyncWarnedRef.current = true;
-            console.warn("[lipsync] 無法建立音訊分析,改用假口型", e);
-          }
-          source = createFakeMouthSource(undefined, () => !audio.paused);
+      for (let i = 0; i < chunks.length; i++) {
+        const url = await getChunkUrl(i);
+        if (!active()) return;
+        if (i + 1 < chunks.length) void getChunkUrl(i + 1).catch(() => {}); // 預先抓下一段
+
+        audio.src = url;
+        audio.playbackRate = storyPaceRate[storyPace] ?? 1;
+        const ended = new Promise<void>((resolve) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => resolve();
+        });
+        await audio.play();
+        if (!active()) {
+          audio.pause();
+          return;
         }
-        setMouthSource(source);
-      } else {
-        setMouthSource(null);
+        if (i === 0) {
+          // 聲音出來後才接音源:analyser 失敗(或 context 未 running)就退回假口型；
+          // 其他角色沒有口型,不必把音訊接進 Web Audio(也避開 Safari 的 context 風險)
+          if (isYanruyuUrl(modelUrl)) {
+            try {
+              source = getAnalyserMouthSource(audio);
+            } catch (e) {
+              if (!lipsyncWarnedRef.current) {
+                lipsyncWarnedRef.current = true;
+                console.warn("[lipsync] 無法建立音訊分析,改用假口型", e);
+              }
+              source = createFakeMouthSource(undefined, () => !audio.paused);
+            }
+            setMouthSource(source);
+          } else {
+            setMouthSource(null);
+          }
+          setSpeakLoading(false);
+          setVoiceStatus("playing");
+        }
+        await ended;
+        if (!active()) return;
       }
-      setSpeakLoading(false);
-      setVoiceStatus("playing");
+      finish();
     } catch (e) {
-      // 換頁中止或已卸載：靜默結束，不跳 toast、不退回內建語音、不改 state
-      if (unmountedRef.current || (e instanceof Error && e.name === "AbortError")) return;
+      // 換頁中止、被停止或已卸載：靜默結束，不跳 toast、不退回內建語音、不改 state
+      if (!active() || (e instanceof Error && e.name === "AbortError")) return;
       setSpeakLoading(false);
       const msg = e instanceof Error ? e.message : "未知錯誤";
       setToast({ text: `AI 語音暫時無法使用（${msg}），改用內建語音朗讀`, variant: "error" });
@@ -527,6 +564,7 @@ export default function Librarian({ page }: { page: ChatPage }) {
   };
 
   const stopVoice = () => {
+    playRunRef.current = null; // 讓進行中的分段播放迴圈停下
     setMouthSource(null);
     if (!("speechSynthesis" in window)) return;
     // Chrome 已知 bug：引擎在 paused 狀態下 cancel() 會被無視、聲音停不下來，
