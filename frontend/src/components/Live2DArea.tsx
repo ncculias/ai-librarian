@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Live2DPanel from "./Live2DPanel";
 import {
   checkYanruyuSupport,
@@ -19,6 +19,12 @@ type Props = {
   paused?: boolean;
 };
 
+// 從候選清單挑第一個 .model3.json;沒有就退而求其次
+function pickModelUrl(usable: Live2DInfo[], all: Live2DInfo[]): string {
+  const first = usable.find((m) => m.url.endsWith(".model3.json"));
+  return first?.url ?? usable[0]?.url ?? all[0]?.url ?? "";
+}
+
 export default function Live2DArea({
   modelUrl,
   setModelUrl,
@@ -30,6 +36,8 @@ export default function Live2DArea({
     ReturnType<typeof checkYanruyuSupport>
   >({ ok: true });
   const [resizeKey, setResizeKey] = useState(0);
+  // 已處理過載入失敗的 url(每個 url 只反應一次,避免退回後再失敗而無限循環)
+  const failedUrlsRef = useRef<Set<string>>(new Set());
 
   const rebuildPanel = useCallback(() => {
     setResizeKey((k) => k + 1);
@@ -49,6 +57,21 @@ export default function Live2DArea({
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
   }, [rebuildPanel]);
+
+  // 顏如玉模型檔載入失敗(缺檔等):停用顏如玉並退回第一個非顏如玉的模型
+  const handleLoadError = useCallback(
+    (url: string) => {
+      if (failedUrlsRef.current.has(url)) return;
+      failedUrlsRef.current.add(url);
+      if (!isYanruyuUrl(url)) return;
+      const reason = "模型檔缺失";
+      setYanruyuSupport({ ok: false, reason });
+      console.warn("[Live2D] 顏如玉已停用:", reason);
+      const usable = _models.filter((m) => !isYanruyuUrl(m.url));
+      setModelUrl(pickModelUrl(usable, _models));
+    },
+    [_models, setModelUrl],
+  );
 
   // 註：以前 A+/A- 會改變整體版面，所以要監聽 font-size-change 重建面板；
   // 現在字級縮放只影響文字、不動版面（index.css 的 html 基準已固定），不需要重建，
@@ -84,8 +107,7 @@ export default function Live2DArea({
         const usable = support.ok
           ? normalized
           : normalized.filter((m) => !isYanruyuUrl(m.url));
-        const first = usable.find((m) => m.url.endsWith(".model3.json"));
-        setModelUrl(first?.url ?? usable[0]?.url ?? normalized[0]?.url ?? "");
+        setModelUrl(pickModelUrl(usable, normalized));
       })
       .catch((err) => {
         console.error("Load Live2D manifest failed:", err);
@@ -103,6 +125,7 @@ export default function Live2DArea({
             className="w-full h-full"
             emotionToken={emotionToken ?? undefined}
             paused={paused}
+            onLoadError={handleLoadError}
           />
         )}
       </div>

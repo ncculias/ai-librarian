@@ -9,6 +9,7 @@ type Props = {
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
   paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）
+  onLoadError?: (url: string, err: unknown) => void; // 模型載入失敗時通知上層（供退回其他角色）
 };
 
 type PonchoPose = {
@@ -103,6 +104,7 @@ export default function Live2DPanel({
   className,
   emotionToken,
   paused = false,
+  onLoadError,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -121,6 +123,9 @@ export default function Live2DPanel({
   // MotionPriority.FORCE（動態載入引擎後才取得；3 為其預設值）
   const forcePriorityRef = useRef<number>(3);
   latestEmotionRef.current = emotionToken;
+  // 以 ref 持有最新回呼，避免 effect 因回呼身分改變而重建模型
+  const onLoadErrorRef = useRef(onLoadError);
+  onLoadErrorRef.current = onLoadError;
 
   // 設定視窗等遮罩開啟時暫停動畫：背景 60fps 渲染會與前景 UI 搶資源
   useEffect(() => {
@@ -190,6 +195,24 @@ export default function Live2DPanel({
         if (isYanruyuUrl(abs)) {
           model.internalModel.eyeBlink = undefined;
           model.internalModel.breath = undefined;
+
+          // 引擎不讀 Meta.Loop、也從不呼叫 setIsLoop,動作播到尾端會淡出、停止再重啟(0.5 秒淡入),
+          // 待機時每個循環都會出現一次頓挫。載入的動作一律改成無縫循環且不重複淡入。
+          const mm = model.internalModel.motionManager;
+          const makeLoop = (motion: any) => {
+            motion?.setIsLoop?.(true);
+            motion?.setIsLoopFadeIn?.(false);
+          };
+          mm.on("motionLoaded", (_group: string, _index: number, motion: any) =>
+            makeLoop(motion),
+          );
+          const groups = mm.motionGroups;
+          if (groups && typeof groups === "object") {
+            for (const list of Object.values(groups)) {
+              if (!Array.isArray(list)) continue;
+              for (const motion of list) makeLoop(motion);
+            }
+          }
         }
 
         // 模型載入期間可能已收到情緒，載入完成後補套用
@@ -371,6 +394,7 @@ export default function Live2DPanel({
           let count = 0;
           const max = 60; // 最多重試約 1 秒：模型亮相（revealed）後再多校幾幀就收手
           const loop = () => {
+            if (destroyed) return; // app 已銷毀就不再呼叫 fit()
             fit();
             count++;
             if (count < max && !(revealed && count >= 10)) requestAnimationFrame(loop);
@@ -381,7 +405,12 @@ export default function Live2DPanel({
 
         appRef.current = app;
         app.start();
-      } catch (_) {}
+      } catch (err) {
+        if (!destroyed) {
+          console.error("[Live2DPanel] 模型載入失敗", modelUrl, err);
+          onLoadErrorRef.current?.(modelUrl, err);
+        }
+      }
     };
 
     mount();
