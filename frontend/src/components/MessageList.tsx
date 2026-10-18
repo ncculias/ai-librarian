@@ -43,7 +43,7 @@ function ReplyFooter({ sources }: { sources?: ReplySource[] }) {
   const merged = mergeSources(sources ?? []);
   return (
     <div
-      className="msg-text-sm mt-3 border-t pt-2"
+      className="msg-text-xs mt-3 border-t pt-2"
       style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
     >
       <div>

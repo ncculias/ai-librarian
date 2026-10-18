@@ -570,6 +570,10 @@ body {
 .msg-text-sm {
   font-size: calc(var(--font-size-base) * 0.8);
 }
+/* 再小一階（預設 = 16px × 0.7 ≈ 11px）：資料來源、免責聲明等不重要的附註 */
+.msg-text-xs {
+  font-size: calc(var(--font-size-base) * 0.7);
+}
 /* 對話區的標題、副標與模式分頁也跟著 A+/A-:
    預設值與原本 Tailwind 的 text-lg / text-sm / text-base 相近（22 / 14 / 18px） */
 .ui-title {
