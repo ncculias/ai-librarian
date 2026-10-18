@@ -277,7 +277,10 @@ export default function Live2DPanel({
         // 倍率從 ref 讀,設定視窗調整後即時生效、不需重建模型
         const speedApplies = isYanruyuUrl(abs);
         tickFn = (dt: number) => {
-          model.update?.(dt * (speedApplies ? motionSpeedRef.current : 1));
+          // pixi 的 ticker 給的 dt 是「幀數」(60fps 時約 1),但 Live2DModel.update() 要的是毫秒;
+          // 顏如玉改用 ticker.deltaMS,動作才會以正確速度播放(舊角色維持原行為)
+          const elapsed = speedApplies ? app!.ticker.deltaMS * motionSpeedRef.current : dt;
+          model.update?.(elapsed);
 
           if (isPoncho) {
             const core = model?.internalModel?.coreModel;
