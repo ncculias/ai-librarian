@@ -194,6 +194,16 @@ export default function Librarian() {
       // localStorage 不可用時忽略，僅本次有效
     }
   }, [isModeBarCollapsed]);
+  // 展開模式列後,把焦點交給「收合」鈕(原本的「展開」選單已卸載);首次掛載不搶焦點
+  const collapseBtnRef = useRef<HTMLButtonElement>(null);
+  const modeBarFirstRunRef = useRef(true);
+  useEffect(() => {
+    if (modeBarFirstRunRef.current) {
+      modeBarFirstRunRef.current = false;
+      return;
+    }
+    if (!isModeBarCollapsed) collapseBtnRef.current?.focus({ preventScroll: true });
+  }, [isModeBarCollapsed]);
   const [bookOutputMode, setBookOutputMode] =
     useState<(typeof bookOutputModes)[number]["id"]>("text");
   const [storyTone, setStoryTone] = useState(storySettings.tone[0]);
@@ -608,11 +618,13 @@ export default function Librarian() {
                 value={chatMode}
                 onChange={(id) => setChatMode(id as typeof chatMode)}
                 onExpand={() => setIsModeBarCollapsed(false)}
+                autoFocus
               />
             )}
             {messages.some((m) => m.kind !== "greeting") && (
               <div className="relative">
                 <Popover
+                  disabled={isDownloadMenuOpen}
                   content={
                     <div>
                       <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
@@ -757,6 +769,7 @@ export default function Librarian() {
               }
             >
               <button
+                ref={collapseBtnRef}
                 type="button"
                 onClick={() => setIsModeBarCollapsed(true)}
                 className="theme-icon-button rounded-lg p-2"

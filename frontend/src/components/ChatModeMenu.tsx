@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpen, MessageCircleMore } from "lucide-react";
 import Popover from "./Popover";
 
@@ -10,21 +10,29 @@ export default function ChatModeMenu({
   value,
   onChange,
   onExpand,
+  autoFocus = false,
 }: {
   modes: readonly ChatModeOption[];
   value: string;
   onChange: (id: string) => void;
   onExpand: () => void;
+  /** 掛載時把焦點移到圖示鈕(收合模式列後,避免焦點掉回 body) */
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (autoFocus) triggerRef.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
   const current = modes.find((m) => m.id === value) ?? modes[0];
   // 只有一般問答用對話圖示,其餘模式都用書本圖示
   const Icon = current.id === "general" ? MessageCircleMore : BookOpen;
 
   return (
     <div className="relative">
-      {/* Popover 只包圖示鈕,避免說明浮層蓋住下方的切換選單 */}
+      {/* 選單展開時停用 hover 說明(disabled),避免觸控裝置上說明浮層蓋住切換選單 */}
       <Popover
+        disabled={open}
         content={
           <div>
             <p className="mb-1 font-semibold text-[var(--color-text-primary)]">
@@ -36,6 +44,7 @@ export default function ChatModeMenu({
         }
       >
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setOpen((o) => !o)}
           className="theme-icon-button flex items-center rounded-lg p-2"
@@ -50,11 +59,12 @@ export default function ChatModeMenu({
         <>
           {/* 點選單外任何地方收起選單 */}
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="theme-modal absolute right-0 top-full z-20 mt-2 w-56 rounded-xl p-2">
+          <div className="theme-modal absolute right-0 top-full z-20 mt-2 w-56 rounded-xl p-2 max-sm:left-1/2 max-sm:right-auto max-sm:-translate-x-1/2">
             {modes.map((m) => (
               <button
                 key={m.id}
                 type="button"
+                aria-current={m.id === current.id ? "true" : undefined}
                 onClick={() => {
                   onChange(m.id);
                   setOpen(false);
