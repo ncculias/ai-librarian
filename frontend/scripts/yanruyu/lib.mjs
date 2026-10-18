@@ -38,7 +38,9 @@ export function asciiName(vendorFile) {
 }
 
 export function buildModel3() {
-  const fade = { FadeInTime: 0.5, FadeOutTime: 0.5 };
+  // 淡出設 0 — 循環動作首尾幀相同,動作結束瞬間引擎重啟 idle 並從當前姿勢淡入,接點不可見;
+  // 淡出 0.5 會先往預設姿勢滑再回來,造成每循環一次頓挫
+  const fade = { FadeInTime: 0.5, FadeOutTime: 0 };
   return {
     Version: 3,
     FileReferences: {

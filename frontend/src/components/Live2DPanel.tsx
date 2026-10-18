@@ -196,23 +196,7 @@ export default function Live2DPanel({
           model.internalModel.eyeBlink = undefined;
           model.internalModel.breath = undefined;
 
-          // 引擎不讀 Meta.Loop、也從不呼叫 setIsLoop,動作播到尾端會淡出、停止再重啟(0.5 秒淡入),
-          // 待機時每個循環都會出現一次頓挫。載入的動作一律改成無縫循環且不重複淡入。
-          const mm = model.internalModel.motionManager;
-          const makeLoop = (motion: any) => {
-            motion?.setIsLoop?.(true);
-            motion?.setIsLoopFadeIn?.(false);
-          };
-          mm.on("motionLoaded", (_group: string, _index: number, motion: any) =>
-            makeLoop(motion),
-          );
-          const groups = mm.motionGroups;
-          if (groups && typeof groups === "object") {
-            for (const list of Object.values(groups)) {
-              if (!Array.isArray(list)) continue;
-              for (const motion of list) makeLoop(motion);
-            }
-          }
+          // 動作循環的銜接改由 model3 的 FadeOutTime=0 處理(見 lib.mjs buildModel3);引擎的 setIsLoop 在 0.4.0 會讓動作凍結,不可使用
         }
 
         // 模型載入期間可能已收到情緒，載入完成後補套用

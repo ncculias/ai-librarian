@@ -43,5 +43,11 @@ test("buildModel3 無 Physics、無 EyeBlink、5 表情、6 動作群組", () =>
   assert.deepEqual(m.FileReferences.Expressions.map(e => e.Name), EMOTIONS);
   assert.deepEqual(Object.keys(m.FileReferences.Motions), ["Idle", ...EMOTIONS]);
   assert.equal(m.FileReferences.Motions.Idle[0].File, "motions/normal.motion3.json");
+  for (const g of ["Idle", ...EMOTIONS]) {
+    assert.equal(m.FileReferences.Motions[g][0].FadeInTime, 0.5, `${g} FadeInTime`);
+    assert.equal(m.FileReferences.Motions[g][0].FadeOutTime, 0, `${g} FadeOutTime`);
+  }
+  assert.equal(m.FileReferences.Motions.Idle[0].FadeOutTime, 0);
   assert.equal(m.FileReferences.Motions.happy[0].FadeInTime, 0.5);
+  assert.equal(m.FileReferences.Motions.happy[0].FadeOutTime, 0);
 });
