@@ -1,16 +1,12 @@
 import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
-import {
-  YANRUYU_MOTION_SPEED,
-  isYanruyuUrl,
-  mapEmotion,
-  shouldApply,
-} from "./live2d/yanruyu";
+import { isYanruyuUrl, mapEmotion, shouldApply } from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
 
 // Live2DPanel 輸入參數
 type Props = {
   modelUrl: string; // Live2D 模型 JSON 路徑
+  motionSpeed?: number; // 動作速度倍率(1 = 原速);目前只套用在顏如玉
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
   paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）
@@ -109,6 +105,7 @@ export default function Live2DPanel({
   className,
   emotionToken,
   paused = false,
+  motionSpeed = 1,
   onLoadError,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
@@ -128,6 +125,9 @@ export default function Live2DPanel({
   // MotionPriority.FORCE（動態載入引擎後才取得；3 為其預設值）
   const forcePriorityRef = useRef<number>(3);
   latestEmotionRef.current = emotionToken;
+  // 動作速度倍率也走 ref:設定視窗改值後 tick 立即讀到新值,不觸發模型重建
+  const motionSpeedRef = useRef(motionSpeed);
+  motionSpeedRef.current = motionSpeed;
   // 以 ref 持有最新回呼，避免 effect 因回呼身分改變而重建模型
   const onLoadErrorRef = useRef(onLoadError);
   onLoadErrorRef.current = onLoadError;
@@ -266,9 +266,10 @@ export default function Live2DPanel({
         let elapsedSec = 0;
 
         // 顏如玉的動作節奏以倍率加速:推進更多的時間 = 動作播得更快(物理已關閉,不會不穩)
-        const motionSpeed = isYanruyuUrl(abs) ? YANRUYU_MOTION_SPEED : 1;
+        // 倍率從 ref 讀,設定視窗調整後即時生效、不需重建模型
+        const speedApplies = isYanruyuUrl(abs);
         tickFn = (dt: number) => {
-          model.update?.(dt * motionSpeed);
+          model.update?.(dt * (speedApplies ? motionSpeedRef.current : 1));
 
           if (isPoncho) {
             const core = model?.internalModel?.coreModel;

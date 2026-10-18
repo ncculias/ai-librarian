@@ -17,6 +17,7 @@ type Props = {
   setModelUrl: (url: string) => void;
   emotionToken: string | null;
   paused?: boolean;
+  motionSpeed?: number; // 動作速度倍率,轉交給 Live2DPanel
 };
 
 // 從候選清單挑第一個 .model3.json;沒有就退而求其次
@@ -30,6 +31,7 @@ export default function Live2DArea({
   setModelUrl,
   emotionToken,
   paused = false,
+  motionSpeed = 1,
 }: Props) {
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
   const [yanruyuSupport, setYanruyuSupport] = useState<
@@ -125,6 +127,7 @@ export default function Live2DArea({
             className="w-full h-full"
             emotionToken={emotionToken ?? undefined}
             paused={paused}
+            motionSpeed={motionSpeed}
             onLoadError={handleLoadError}
           />
         )}

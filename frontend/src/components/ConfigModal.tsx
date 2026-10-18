@@ -51,6 +51,7 @@ export type ConfigDraft = {
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+  motionSpeed: number; // 角色動作速度倍率(1 = 原速);目前只影響顏如玉
   persona: string;
   personaModules: PersonaModuleSet;
 };
@@ -423,6 +424,23 @@ export default function ConfigModal({
               setDraft((d) => ({ ...d, maxTokens: Number(e.target.value) }))
             }
             className="theme-input mb-2 w-full rounded-lg px-3 py-2 text-sm"
+          />
+          <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+            角色動作速度{" "}
+            <span className="text-[var(--color-text-muted)]">
+              (1 = 原速,目前 {draft.motionSpeed.toFixed(1)} 倍)
+            </span>
+          </label>
+          <input
+            type="range"
+            min="0.5"
+            max="2.5"
+            step="0.1"
+            value={draft.motionSpeed}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, motionSpeed: Number(e.target.value) }))
+            }
+            className="mb-2 w-full"
           />
         </details>
 

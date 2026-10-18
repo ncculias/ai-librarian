@@ -27,6 +27,7 @@ import ToolsSection from "../components/ToolsSection";
 import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
 import ConfigModal from "../components/ConfigModal";
+import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
 import Popover from "../components/Popover";
 
 // LLM streaming hook（負責聊天／工具呼叫／情緒回傳）
@@ -130,6 +131,7 @@ export default function Librarian() {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
+  const [motionSpeed, setMotionSpeed] = useState(YANRUYU_MOTION_SPEED);
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [chatMode, setChatMode] =
     useState<(typeof chatModes)[number]["id"]>("general");
@@ -174,15 +176,18 @@ export default function Librarian() {
     systemPrompt: string;
     temperature: number;
     maxTokens: number;
+    motionSpeed: number;
     persona: string;
     personaModules: PersonaModuleSet;
   }) => {
     const t = Math.min(1, Math.max(0, Number(draft.temperature) || 0));
     const m = Math.max(1, Math.floor(Number(draft.maxTokens) || 1));
+    const s = Math.min(2.5, Math.max(0.5, Number(draft.motionSpeed) || 1));
 
     setSystemPrompt(draft.systemPrompt);
     setTemperature(t);
     setMaxTokens(m);
+    setMotionSpeed(s);
     setPersona(draft.persona as PersonaId);
     setPersonaModules(draft.personaModules);
 
@@ -192,6 +197,7 @@ export default function Librarian() {
         systemPrompt: draft.systemPrompt,
         temperature: t,
         maxTokens: m,
+        motionSpeed: s,
         model: currentModel,
         persona: draft.persona,
       }),
@@ -212,6 +218,8 @@ export default function Librarian() {
       if (typeof saved.temperature === "number")
         setTemperature(saved.temperature);
       if (typeof saved.maxTokens === "number") setMaxTokens(saved.maxTokens);
+      if (typeof saved.motionSpeed === "number")
+        setMotionSpeed(Math.min(2.5, Math.max(0.5, saved.motionSpeed)));
       // 舊版清單存下來的型號（如 gpt-4o）若已不在現役清單，落回新預設
       if (
         typeof saved.model === "string" &&
@@ -347,6 +355,7 @@ export default function Librarian() {
           setModelUrl={setModelUrl}
           emotionToken={emotionToken}
           paused={isConfigOpen}
+          motionSpeed={motionSpeed}
         />
       )}
 
@@ -557,6 +566,7 @@ export default function Librarian() {
               systemPrompt,
               temperature,
               maxTokens,
+              motionSpeed,
               persona,
               personaModules,
             }}
