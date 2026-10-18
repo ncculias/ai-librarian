@@ -25,10 +25,11 @@ export function mergeExpressions(parts) {
   return { Type: "Live2D Expression", FadeInTime: 0, FadeOutTime: 0, Parameters };
 }
 
-// 去掉開頭的 "(類別) " 標籤;"<名稱>.8192/" 貼圖資料夾改為 "textures/"
+// 去掉開頭的 "(類別) " 標籤、其餘空格改為 "_";"<名稱>.8192/" 貼圖資料夾改為 "textures/"
 export function asciiName(vendorFile) {
   return vendorFile
     .replace(/^\([^)]*\) /, "")
+    .replace(/ /g, "_")
     .replace(/^[^/]+\.8192\//, "textures/");
 }
 

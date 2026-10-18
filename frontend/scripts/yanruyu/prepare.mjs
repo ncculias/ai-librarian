@@ -27,9 +27,9 @@ function vendorPath(rel) {
   return p;
 }
 
-// 輸出檔名保證沒有空格(asciiName 只處理 "(類別) " 前綴與貼圖資料夾)
+// asciiName 以字串開頭為錨點,所以傳 basename
 function outputName(vendorFile) {
-  return asciiName(path.basename(vendorFile)).replace(/ /g, "_");
+  return asciiName(path.basename(vendorFile));
 }
 
 function writeOut(rel, content) {
@@ -59,6 +59,16 @@ function readJson(rel) {
 
 if (!fs.existsSync(vendorDir) || !fs.statSync(vendorDir).isDirectory()) {
   fail(`廠商模型目錄不存在: ${vendorDir}`);
+}
+
+// 輸出目錄會被清空;若等於或包含廠商目錄,會刪掉不可再取得的授權原檔,必須在任何清除前拒絕
+{
+  const vendorAbs = path.resolve(vendorDir);
+  const outAbs = path.resolve(outDir);
+  if (outAbs === vendorAbs || vendorAbs.startsWith(outAbs + path.sep)) {
+    console.error(`錯誤: 輸出目錄 (${outAbs}) 不可等於或包含廠商模型目錄 (${vendorAbs}),否則會刪除廠商原檔`);
+    process.exit(2);
+  }
 }
 
 // 先檢查所有輸入都在,再清空輸出目錄,避免失敗時留下半成品

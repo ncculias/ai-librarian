@@ -20,6 +20,11 @@ test("asciiName 去掉類別前綴與空格", () => {
   assert.equal(asciiName("AI-Librarian.8192/texture_00.png"), "textures/texture_00.png");
 });
 
+test("asciiName 內部空格改成底線", () => {
+  assert.equal(asciiName("(cloth) jacket body.exp3.json"), "jacket_body.exp3.json");
+  assert.equal(asciiName("(cloth) neck bknt.exp3.json"), "neck_bknt.exp3.json");
+});
+
 test("buildModel3 無 Physics、無 EyeBlink、5 表情、6 動作群組", () => {
   const m = buildModel3();
   assert.equal(m.FileReferences.Physics, undefined);
