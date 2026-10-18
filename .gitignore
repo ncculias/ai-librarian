@@ -8,3 +8,6 @@
 
 # macOS system files
 .DS_Store
+
+# SDD controller scratch workspace
+.superpowers/
