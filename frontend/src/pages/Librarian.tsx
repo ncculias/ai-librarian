@@ -29,6 +29,12 @@ import MessageList from "../components/MessageList";
 import ChatInput from "../components/ChatInput";
 import ConfigModal, { type ConfigDraft } from "../components/ConfigModal";
 import { YANRUYU_MOTION_SPEED } from "../components/live2d/yanruyu";
+import type { MouthSource } from "../components/live2d/lipsync";
+import {
+  createFakeMouthSource,
+  getAnalyserMouthSource,
+  warmUpAudioContext,
+} from "../components/live2d/lipsyncSources";
 import {
   DEFAULT_CHARACTER_VIEW,
   DEFAULT_LAYOUT_MODE,
@@ -329,6 +335,8 @@ export default function Librarian() {
   const [speakLoading, setSpeakLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ttsCacheRef = useRef<Map<number, string>>(new Map()); // 訊息索引 → 音檔 object URL
+  // 朗讀時驅動顏如玉嘴巴的音源(null = 沒在念,嘴巴閉上)
+  const [mouthSource, setMouthSource] = useState<MouthSource | null>(null);
 
   const speakWithBrowserVoice = (index: number, text: string) => {
     if (!("speechSynthesis" in window)) return;
@@ -341,18 +349,25 @@ export default function Librarian() {
     utterance.lang = "zh-TW";
     utterance.rate = storyPaceRate[storyPace] ?? 1;
     utterance.pitch = storyTonePitch[storyTone] ?? 1;
+    // 內建語音拿不到音量,用假口型;done 只清自己的音源,
+    // 避免被 cancel() 非同步觸發的舊 utterance 事件把新朗讀的嘴巴關掉
+    const fakeSource = createFakeMouthSource();
     const done = () => {
       setVoiceStatus("idle");
       setSpeakingIndex((cur) => (cur === index ? null : cur));
+      setMouthSource((cur) => (cur === fakeSource ? null : cur));
     };
     utterance.onend = done;
     utterance.onerror = done;
     window.speechSynthesis.speak(utterance);
+    setMouthSource(fakeSource);
     setVoiceStatus("playing");
     setSpeakingIndex(index);
   };
 
   const speakMessage = async (index: number) => {
+    // 必須在任何 await 之前(仍在點擊手勢內)預先喚醒 AudioContext,Safari 才允許
+    warmUpAudioContext();
     const text = messages[index]?.content.trim();
     if (!text) return;
     stopVoice();
@@ -379,13 +394,23 @@ export default function Librarian() {
       const audio = (audioRef.current ??= new Audio());
       audio.src = url;
       audio.playbackRate = storyPaceRate[storyPace] ?? 1;
+      let source: MouthSource | null = null;
       const done = () => {
         setVoiceStatus("idle");
         setSpeakingIndex((cur) => (cur === index ? null : cur));
+        setMouthSource((cur) => (cur === source ? null : cur));
       };
       audio.onended = done;
       audio.onerror = done;
       await audio.play();
+      // 聲音出來後才接音源:analyser 失敗(或 context 未 running)就退回假口型
+      try {
+        source = getAnalyserMouthSource(audio);
+      } catch (e) {
+        console.warn("[lipsync] 無法建立音訊分析,改用假口型", e);
+        source = createFakeMouthSource();
+      }
+      setMouthSource(source);
       setSpeakLoading(false);
       setVoiceStatus("playing");
     } catch (e) {
@@ -449,6 +474,7 @@ export default function Librarian() {
   };
 
   const stopVoice = () => {
+    setMouthSource(null);
     if (!("speechSynthesis" in window)) return;
     // Chrome 已知 bug：引擎在 paused 狀態下 cancel() 會被無視、聲音停不下來，
     // 必須先 resume() 解鎖再 cancel()
@@ -509,6 +535,7 @@ export default function Librarian() {
           motionSpeed={motionSpeed}
           characterView={characterView}
           layout={layout}
+          mouthSource={mouthSource}
         />
       )}
 

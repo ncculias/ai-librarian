@@ -15,15 +15,33 @@ const cache = new WeakMap<
   { analyser: AnalyserNode; buffer: Float32Array<ArrayBuffer> }
 >();
 
+// 在使用者手勢內預先建立/喚醒 AudioContext(Safari 只允許在手勢內建立或 resume)。
+// 朗讀流程要先 await 網路請求才 play(),手勢早已結束,所以得在點擊當下先呼叫。
+// 失敗一律吞掉,後續會退回假口型。
+export function warmUpAudioContext(): void {
+  try {
+    if (!ctx) ctx = new AudioContext();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  } catch {
+    // 無法建立 AudioContext:交給 getAnalyserMouthSource 丟例外、由呼叫端退回假口型
+  }
+}
+
 // 取得該音訊元素的音量音源;失敗時直接丟例外,由呼叫端退回假口型。
 export function getAnalyserMouthSource(audio: HTMLMediaElement): MouthSource {
   if (!ctx) ctx = new AudioContext();
   const c = ctx;
   // 瀏覽器自動播放政策可能讓 context 一開始是 suspended
-  if (c.state === "suspended") void c.resume();
+  if (c.state === "suspended") c.resume().catch(() => {});
 
   let entry = cache.get(audio);
   if (!entry) {
+    // 元素一旦接進 Web Audio,聲音就只走我們的節點鏈;若 context 不是 running
+    // (例如 Safari 手勢外建立、仍卡在 suspended),接進去會讓朗讀整個無聲。
+    // 所以尚未接線時先檢查,不行就丟例外,讓元素保持直接輸出、口型退回假口型。
+    if (c.state !== "running") {
+      throw new Error(`AudioContext 狀態為 ${c.state},不接管音訊輸出`);
+    }
     const node = c.createMediaElementSource(audio);
     const analyser = c.createAnalyser();
     analyser.fftSize = 1024;
