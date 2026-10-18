@@ -174,7 +174,7 @@ export default function Librarian({ page }: { page: ChatPage }) {
   const [currentModel, setCurrentModel] = useState(defaultModel);
   const [bookOutputMode, setBookOutputMode] =
     useState<(typeof bookOutputModes)[number]["id"]>(pageMemory.bookOutputMode);
-  const [storyTone, setStoryTone] = useState(pageMemory.storyTone);
+  const [storyTone] = useState(pageMemory.storyTone); // 語氣選項暫時隱藏（見 VoiceSettingsModal 註解），固定為預設
   const [storyPace, setStoryPace] = useState(pageMemory.storyPace);
   // 回寫模組層，換頁回來時還原
   useEffect(() => {
@@ -665,7 +665,7 @@ export default function Librarian({ page }: { page: ChatPage }) {
                       語音輸出設定
                     </p>
                     <p>
-                      目前：{storyTone}語氣，{storyPace}速
+                      目前語速：{storyPace}
                     </p>
                   </div>
                 }
@@ -817,9 +817,7 @@ export default function Librarian({ page }: { page: ChatPage }) {
 
         {isVoiceSettingsOpen && (
           <VoiceSettingsModal
-            tone={storyTone}
             pace={storyPace}
-            onToneChange={setStoryTone}
             onPaceChange={setStoryPace}
             onClose={() => setIsVoiceSettingsOpen(false)}
           />
@@ -906,16 +904,14 @@ export default function Librarian({ page }: { page: ChatPage }) {
   );
 }
 
+// 「故事語氣」選項暫時不顯示：Gemini 語音的語氣寫死在後端提示詞，前端選了沒作用（2026-10-18）；
+// 等後端接收 tone 再放回來。storyTone 狀態保留給瀏覽器備援語音的音高。
 function VoiceSettingsModal({
-  tone,
   pace,
-  onToneChange,
   onPaceChange,
   onClose,
 }: {
-  tone: string;
   pace: string;
-  onToneChange: (value: string) => void;
   onPaceChange: (value: string) => void;
   onClose: () => void;
 }) {
@@ -932,12 +928,6 @@ function VoiceSettingsModal({
         </div>
 
         <div className="space-y-5">
-          <StorySettingRow
-            label="故事語氣"
-            options={storySettings.tone}
-            selected={tone}
-            onSelect={onToneChange}
-          />
           <StorySettingRow
             label="語速"
             options={storySettings.pace}
