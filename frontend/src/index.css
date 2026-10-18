@@ -490,6 +490,17 @@ body {
 .msg-text-sm {
   font-size: calc(var(--font-size-base) * 0.8);
 }
+/* 對話區的標題、副標與模式分頁也跟著 A+/A-:
+   預設值與原本 Tailwind 的 text-lg / text-sm / text-base 相近（22 / 14 / 18px） */
+.ui-title {
+  font-size: calc(var(--font-size-base) * 1.1);
+}
+.ui-sub {
+  font-size: calc(var(--font-size-base) * 0.7);
+}
+.ui-tab {
+  font-size: calc(var(--font-size-base) * 0.9);
+}
 
 /* === 思考中的三點動畫（聊天等待泡泡）=== */
 .typing-dots {

@@ -368,10 +368,10 @@ export default function Librarian() {
       >
         <header className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
+            <h2 className="ui-title font-bold text-[var(--color-text-primary)]">
               對話區
             </h2>
-            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            <p className="ui-sub mt-1 text-[var(--color-text-secondary)]">
               輸入問題 → AI Librarian 回答 → 顯示對話
             </p>
           </div>
@@ -503,7 +503,7 @@ export default function Librarian() {
                       : "border-[var(--color-border)] bg-[var(--color-bg-panel)] text-[var(--color-text-secondary)]"
                   }`}
                 >
-                  <div className="text-sm font-semibold sm:text-base">
+                  <div className="ui-tab font-semibold">
                     {mode.label}
                   </div>
                 </button>
