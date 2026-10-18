@@ -2,10 +2,74 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowDown, MessageCircleQuestionMark } from "lucide-react";
 
+type ReplySource = { tool: string; label: string; urls: string[] };
+
 type Message = {
   role: "user" | "assistant";
   content: string;
+  sources?: ReplySource[]; // assistant 回覆用過的工具與連結(空 = 沒用外部工具)
 };
+
+// 同一個工具在一輪裡可能被叫多次(例如重試),顯示時合併並去重連結
+function mergeSources(sources: ReplySource[]): ReplySource[] {
+  const byTool = new Map<string, ReplySource>();
+  for (const s of sources) {
+    const cur = byTool.get(s.tool);
+    if (!cur) byTool.set(s.tool, { ...s, urls: [...s.urls] });
+    else cur.urls = Array.from(new Set([...cur.urls, ...s.urls]));
+  }
+  return Array.from(byTool.values());
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// 每則 AI 回覆下方的「資料來源 + 免責提醒」
+function ReplyFooter({ sources }: { sources?: ReplySource[] }) {
+  const merged = mergeSources(sources ?? []);
+  return (
+    <div
+      className="msg-text-sm mt-3 border-t pt-2"
+      style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+    >
+      <div>
+        <span className="font-semibold">資料來源：</span>
+        {merged.length === 0 ? (
+          <span>未使用外部查詢工具，依 AI 既有知識回答。</span>
+        ) : (
+          <ul className="mt-1 space-y-0.5">
+            {merged.map((s) => (
+              <li key={s.tool}>
+                {s.label}
+                {s.urls.map((u, j) => (
+                  <span key={u}>
+                    {j === 0 ? "：" : "、"}
+                    <a
+                      href={u}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all underline"
+                      title={u}
+                    >
+                      {hostOf(u)}
+                      {s.urls.length > 1 ? ` (${j + 1})` : ""}
+                    </a>
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-1">⚠ AI 生成的內容可能有誤，重要資訊請自行查證。</div>
+    </div>
+  );
+}
 
 type Props = {
   messages: Message[];
@@ -217,9 +281,12 @@ export default function MessageList({
             }`}
           >
             {m.role === "assistant" ? (
-              <div className="message-markdown space-y-3">
-                {renderMarkdownContent(m.content)}
-              </div>
+              <>
+                <div className="message-markdown space-y-3">
+                  {renderMarkdownContent(m.content)}
+                </div>
+                <ReplyFooter sources={m.sources} />
+              </>
             ) : (
               m.content
             )}

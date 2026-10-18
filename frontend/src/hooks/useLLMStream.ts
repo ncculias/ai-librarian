@@ -1,7 +1,34 @@
 import { useState, useRef, useEffect } from "react";
 
 // ts：訊息產生時間（下載對話的研究需求——可算回應延遲與對話時長）
-type Message = { role: "user" | "assistant"; content: string; ts?: number };
+// 一則回覆引用的資料來源:用了哪個工具、工具輸出裡出現的連結
+export type ReplySource = { tool: string; label: string; urls: string[] };
+
+type Message = {
+  role: "user" | "assistant";
+  content: string;
+  ts?: number;
+  sources?: ReplySource[]; // 只有 assistant 有;空陣列代表沒用外部工具
+};
+
+// 工具代號 → 顯示名稱(後端 /v1/tools 的 name)
+const TOOL_LABELS: Record<string, string> = {
+  date_time: "日期時間",
+  arxiv: "arXiv 學術論文",
+  duckduckgo_results_json: "DuckDuckGo 網頁搜尋",
+  youtube_search: "YouTube 搜尋",
+  ncl_search: "NBINet 全國圖書聯合目錄(國家圖書館)",
+  wikipedia: "維基百科",
+  google_search: "Google 搜尋",
+  google_books: "Google 圖書",
+  open_weather_map: "Open-Meteo 天氣資料",
+};
+
+// 從工具輸出撈出連結(去重、最多 5 條),給「資料來源」用
+function extractUrls(text: string, max = 5): string[] {
+  const found = text.match(/https?:\/\/[^\s"'<>）)\]]+/g) ?? [];
+  return Array.from(new Set(found)).slice(0, max);
+}
 
 type APIMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -60,6 +87,8 @@ export default function useLLMStream({
     `web-${(crypto.randomUUID?.() ?? Math.random().toString(36).slice(2))}`;
 
   const llmBufferRef = useRef<string>("");
+  // 這一輪問答用過的工具(含連結),回覆開始時掛到 assistant 訊息的 sources
+  const pendingSourcesRef = useRef<ReplySource[]>([]);
   // 並發鎖用 ref 而不是 state：state 要等重繪才更新，連點的空窗會穿透；ref 當下就生效
   const inFlightRef = useRef(false);
 
@@ -170,6 +199,7 @@ export default function useLLMStream({
 
     try {
       llmBufferRef.current = "";
+      pendingSourcesRef.current = [];
 
       // 開 SSE 請求
 
@@ -246,6 +276,18 @@ export default function useLLMStream({
 
             case "tool_output":
               console.log("🔧 工具輸出：", data);
+              // 記下這一輪用過的工具與連結,回覆開始時掛到訊息上當「資料來源」
+              {
+                const tool = String(data.used_tools?.name ?? "");
+                const output = String(data.used_tools?.output ?? "");
+                if (tool && !output.startsWith("Error:")) {
+                  pendingSourcesRef.current.push({
+                    tool,
+                    label: TOOL_LABELS[tool] ?? tool,
+                    urls: extractUrls(output),
+                  });
+                }
+              }
               // 工具跑完、回到思考狀態（多工具串接時會再切到下一個工具名）
               setPendingStatus("思考中");
               break;
@@ -269,7 +311,12 @@ export default function useLLMStream({
 
                 setMessages((prev) => [
                   ...prev,
-                  { role: "assistant", content: chunk, ts: Date.now() },
+                  {
+                    role: "assistant",
+                    content: chunk,
+                    ts: Date.now(),
+                    sources: [...pendingSourcesRef.current],
+                  },
                 ]);
               }
               break;
@@ -296,6 +343,18 @@ export default function useLLMStream({
                 if (chunk) {
                   llmBufferRef.current += chunk;
                   appendToAssistantMessage(chunk);
+                }
+
+                // 回覆結束:把這一輪的工具來源定稿到最後一則 assistant 訊息
+                {
+                  const finalSources = [...pendingSourcesRef.current];
+                  setMessages((prev) => {
+                    const last = prev.length - 1;
+                    if (last < 0 || prev[last].role !== "assistant") return prev;
+                    const updated = [...prev];
+                    updated[last] = { ...updated[last], sources: finalSources };
+                    return updated;
+                  });
                 }
 
                 requestFollowUps(llmBufferRef.current);
