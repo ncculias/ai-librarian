@@ -194,17 +194,16 @@ export default function Librarian() {
       // localStorage 不可用時忽略，僅本次有效
     }
   }, [isModeBarCollapsed]);
-  // 展開模式列後,把焦點交給「收合」鈕(原本的「展開」選單已卸載);首次掛載不搶焦點
+  // 展開模式列後,把焦點交給「收合」鈕(原本的「展開」選單已卸載);只在 true→false 的實際轉換時處理,掛載(含 StrictMode 重複執行)不搶焦點
   const collapseBtnRef = useRef<HTMLButtonElement>(null);
-  const modeBarFirstRunRef = useRef(true);
+  const prevCollapsedRef = useRef(isModeBarCollapsed);
   // 使用者在本次造訪中按過「收合」才把焦點交給標題列圖示;從 localStorage 載入的收合狀態不搶焦點
   const modeBarUserCollapsedRef = useRef(false);
   useEffect(() => {
-    if (modeBarFirstRunRef.current) {
-      modeBarFirstRunRef.current = false;
-      return;
+    if (prevCollapsedRef.current && !isModeBarCollapsed) {
+      collapseBtnRef.current?.focus({ preventScroll: true });
     }
-    if (!isModeBarCollapsed) collapseBtnRef.current?.focus({ preventScroll: true });
+    prevCollapsedRef.current = isModeBarCollapsed;
   }, [isModeBarCollapsed]);
   const [bookOutputMode, setBookOutputMode] =
     useState<(typeof bookOutputModes)[number]["id"]>("text");
