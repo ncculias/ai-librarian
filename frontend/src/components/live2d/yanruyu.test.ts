@@ -14,7 +14,7 @@ test("mapEmotion 對照表", () => {
   assert.equal(mapEmotion("anger"), "angry");
   assert.equal(mapEmotion("angry"), "angry");
   assert.equal(mapEmotion("happy"), "happy");
-  assert.equal(mapEmotion("surprised"), "happy");
+  assert.equal(mapEmotion("surprised"), "think");
   assert.equal(mapEmotion("sad"), "sad");
   assert.equal(mapEmotion("excited"), null);
   assert.equal(mapEmotion(""), null);

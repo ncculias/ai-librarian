@@ -16,14 +16,14 @@ export function isYanruyuUrl(url: string): boolean {
 export type YanruyuEmotion = "normal" | "happy" | "angry" | "sad" | "think";
 
 // 後端情緒 token -> 顏如玉五種情緒。
-// think 已登記於型別但無任何 token 觸發;未知 token 一律忽略。
+// think 由 surprised 觸發;未知 token 一律忽略。
 const EMOTION_MAP: Record<string, YanruyuEmotion> = {
   neutral: "normal",
   happy: "happy",
   angry: "angry",
   anger: "angry",
   sad: "sad",
-  surprised: "happy",
+  surprised: "think", // 驚訝→思考（托腮）：比開心更像「咦？」的反應（2026-10-23 使用者決定）
 };
 
 export function mapEmotion(token: string | null | undefined): YanruyuEmotion | null {
