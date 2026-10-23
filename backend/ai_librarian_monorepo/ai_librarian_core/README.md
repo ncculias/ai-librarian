@@ -256,6 +256,28 @@ async def stream_async_agent():
 asyncio.run(stream_async_agent())
 ```
 
+## 情緒判斷評估
+
+標註準則見 `docs/superpowers/specs/2026-10-23-emotion-detection-v2-design.md` §3。評估集為 `tests/data/emotion_eval.jsonl`（36 筆使用者句子，每個標籤 6 筆）。
+
+```bash
+cd backend && uv run python scripts/eval_emotion.py --show-errors
+```
+
+需要環境變數 `OPENAI_API_KEY`（可放在 `ai_librarian_monorepo/ai_librarian_apis/.env`）；`EMOTION_MODEL` 為選用，也可用 `--model` 覆寫。其他參數：`--limit N`、`--data PATH`。
+
+**v2 基準**（2026-10-23，`openai:gpt-5.4-mini`）：準確率 35/36 = 97.2%。唯一判錯：think → neutral「如果想培養閱讀習慣，應該從哪裡開始比較好？」。
+
+```text
+             neutral     happy       sad     angry surprised     think
+neutral            6         0         0         0         0         0
+happy              0         6         0         0         0         0
+sad                0         0         6         0         0         0
+angry              0         0         0         6         0         0
+surprised          0         0         0         0         6         0
+think              1         0         0         0         0         5
+```
+
 ## TODO
 1. Extend `AsyncReactAgent` or create a new agent with additional Live2D control signals.
 2. Simplify the import paths of this package (write proper init file).
