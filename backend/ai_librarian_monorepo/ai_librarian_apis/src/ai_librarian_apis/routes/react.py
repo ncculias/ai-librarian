@@ -164,6 +164,23 @@ def _process_ai_message(
     return None
 
 
+async def _shutdown_stream(iterator: Any, next_item: "asyncio.Future | None") -> None:
+    """Stop an in-flight ``__anext__`` and close the agent stream without raising."""
+    if next_item is not None:
+        if not next_item.done():
+            next_item.cancel()
+            # Wait until the cancelled call has really finished; closing a running generator raises.
+            await asyncio.wait({next_item})
+        if not next_item.cancelled():
+            next_item.exception()  # mark retrieved
+    aclose = getattr(iterator, "aclose", None)
+    if aclose is not None:
+        try:
+            await aclose()
+        except Exception:  # noqa: BLE001 - cleanup must never raise
+            logger.debug("Closing the emotion stream failed.", exc_info=True)
+
+
 @react_router.post(
     "/stream",
     description=(
@@ -288,7 +305,8 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
             events = [event_str]
             if message.tool_calls and message.tool_calls[0].get("name"):
                 events += emotion_events("tool_chosen")
-            elif started_now and not has_llm_started:
+            elif started_now:
+                # First reply content after a think (llm_start or a later llm_delta) leaves "think".
                 events += emotion_events("llm_start")
             has_llm_started = started_now
             return events
@@ -350,6 +368,9 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                     return events
                 # Fallback when the classifier chunk could not be parsed: the state still has its label.
                 if detect_seen and turn_emotion is None:
+                    logger.warning(
+                        "detect_emotion chunks did not parse; falling back to state emotion %s.", state_emotion
+                    )
                     events += emotion_events("state", state_emotion)
 
             if turn_emotion is not None and pending:
@@ -376,6 +397,7 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                 done, _ = await asyncio.wait({next_item}, timeout=timeout)
                 if not done:
                     # Classifier is slow or silent: stop holding and let the reply through.
+                    logger.warning("No emotion within %.1fs; releasing the held reply.", EMOTION_HOLD_SECONDS)
                     for event_str in release():
                         yield event_str
                     continue
@@ -394,11 +416,7 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                 for event_str in emotion_events("state", state_emotion):
                     yield event_str
         finally:
-            if next_item is not None and not next_item.done():
-                next_item.cancel()
-            aclose = getattr(iterator, "aclose", None)
-            if aclose is not None:
-                await aclose()
+            await _shutdown_stream(iterator, next_item)
 
     return StreamingResponse(
         stream_chunk(),
