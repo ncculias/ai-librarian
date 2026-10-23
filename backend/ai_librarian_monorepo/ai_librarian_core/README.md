@@ -266,7 +266,9 @@ cd backend && uv run python scripts/eval_emotion.py --show-errors
 
 需要環境變數 `OPENAI_API_KEY`（可放在 `ai_librarian_monorepo/ai_librarian_apis/.env`）；`EMOTION_MODEL` 為選用，也可用 `--model` 覆寫。其他參數：`--limit N`、`--data PATH`。
 
-**v2 基準**（2026-10-23，`openai:gpt-5.4-mini`）：準確率 35/36 = 97.2%。唯一判錯：think → neutral「如果想培養閱讀習慣，應該從哪裡開始比較好？」。
+**v2 基準**（2026-10-23，`openai:gpt-5.4-mini`）：準確率 36/36 = 100%。這組樣本偏容易，適合當回歸煙霧測試；要比較提示詞改動，請再加入多情緒混合（規則 3）與客氣但不開心（規則 4）的難例。
+
+`EMOTION_MODEL` 在匯入時讀取，因此只有 shell 匯出或 `--model` 會生效，寫在 `.env` 裡不會改變預設模型。
 
 ```text
              neutral     happy       sad     angry surprised     think
@@ -275,7 +277,7 @@ happy              0         6         0         0         0         0
 sad                0         0         6         0         0         0
 angry              0         0         0         6         0         0
 surprised          0         0         0         0         6         0
-think              1         0         0         0         0         5
+think              0         0         0         0         0         6
 ```
 
 ## TODO

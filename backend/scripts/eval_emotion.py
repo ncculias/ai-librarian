@@ -80,7 +80,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA, help="path to the jsonl evaluation set")
     parser.add_argument("--model", default=EMOTION_MODEL, help="classifier model id (default: EMOTION_MODEL)")
-    parser.add_argument("--limit", type=int, default=None, help="only evaluate the first N rows")
+    parser.add_argument(
+        "--limit", type=int, default=None, help="only evaluate the first N rows (file is grouped by label)"
+    )
     parser.add_argument("--show-errors", action="store_true", help="list misclassified sentences")
     args = parser.parse_args()
 
