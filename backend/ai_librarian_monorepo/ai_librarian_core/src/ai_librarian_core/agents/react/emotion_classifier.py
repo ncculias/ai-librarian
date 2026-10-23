@@ -1,13 +1,20 @@
+import logging
 import os
 from collections.abc import Sequence
 from typing import Any
 
 from ai_librarian_core.agents.react.state import Emotion
+from langchain.chat_models import init_chat_model
+from langchain.chat_models.base import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 EMOTION_MODEL = os.environ.get("EMOTION_MODEL", "openai:gpt-5.4-mini")
 EMOTION_MAX_CHARS = 300
+# Upper bound on one classification; past it the turn's emotion is neutral.
+EMOTION_TIMEOUT_SECONDS = 3.0
 
 EMOTION_PROMPT = """你是圖書館 AI 館員「顏如玉」的情緒感知器。請只看使用者**最新的一句話**，判斷使用者此刻的情緒，
 讓館員用合適的表情回應。回傳六個標籤之一。
@@ -31,6 +38,11 @@ EMOTION_PROMPT = """你是圖書館 AI 館員「顏如玉」的情緒感知器�
 
 class EmotionOutput(BaseModel):
     emotion: Emotion
+
+
+def build_emotion_llm(model: str = EMOTION_MODEL) -> BaseChatModel:
+    """Build the small, deterministic classifier model (shared by production and the eval script)."""
+    return init_chat_model(model, temperature=0, max_tokens=16, timeout=5, max_retries=1)
 
 
 def latest_user_text(messages: Sequence[BaseMessage]) -> str:
@@ -69,5 +81,7 @@ async def classify_emotion(llm: Any, user_text: str) -> Emotion:
         else:
             value = getattr(response, "emotion", None)
         return value if isinstance(value, Emotion) else Emotion(value)
-    except Exception:
+    except Exception as e:  # noqa: BLE001 - a classifier failure must never fail the reply
+        # Never log the user's text: only the failure's type.
+        logger.warning("Emotion classification failed (%s); using neutral.", type(e).__name__)
         return Emotion.NEUTRAL

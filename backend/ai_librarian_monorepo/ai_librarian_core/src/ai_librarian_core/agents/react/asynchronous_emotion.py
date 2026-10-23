@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -5,7 +6,8 @@ from typing import Any, Literal
 
 from ai_librarian_core.agents.react.base import BaseReactAgent, MissingAIMessageError, ReactAgentError, _cleanup_thread
 from ai_librarian_core.agents.react.emotion_classifier import (
-    EMOTION_MODEL,
+    EMOTION_TIMEOUT_SECONDS,
+    build_emotion_llm,
     classify_emotion,
     latest_user_text,
 )
@@ -13,7 +15,6 @@ from ai_librarian_core.agents.react.state import Emotion, MessagesEmotionState
 from ai_librarian_core.models.llm_config import LLMConfig
 from ai_librarian_core.models.used_tool import UsedTool
 from ai_librarian_core.utils.uuid import get_thread_id
-from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -34,7 +35,7 @@ class AsyncReactEmotionAgent(BaseReactAgent):
     def _emotion_llm(self) -> BaseChatModel:
         """Small, deterministic classifier model; built lazily once and reused."""
         if self._emotion_llm_instance is None:
-            self._emotion_llm_instance = init_chat_model(EMOTION_MODEL, temperature=0, max_tokens=16)
+            self._emotion_llm_instance = build_emotion_llm()
         return self._emotion_llm_instance
 
     @_emotion_llm.setter
@@ -67,7 +68,14 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         except Exception:  # noqa: BLE001 - a classifier misconfiguration must never fail the reply
             logger.warning("Emotion classifier model could not be initialised; using neutral.", exc_info=True)
             return {"emotion": Emotion.NEUTRAL}
-        return {"emotion": await classify_emotion(llm, latest_user_text(state.messages))}
+        try:
+            emotion = await asyncio.wait_for(
+                classify_emotion(llm, latest_user_text(state.messages)), EMOTION_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.warning("Emotion classification timed out after %.1fs; using neutral.", EMOTION_TIMEOUT_SECONDS)
+            emotion = Emotion.NEUTRAL
+        return {"emotion": emotion}
 
     async def _route(self, state: MessagesEmotionState) -> Literal["tools", "__end__"]:
         messages = state.messages

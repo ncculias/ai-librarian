@@ -12,10 +12,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from ai_librarian_core.agents.react.emotion_classifier import EMOTION_MODEL, classify_emotion
+from ai_librarian_core.agents.react.emotion_classifier import EMOTION_MODEL, build_emotion_llm, classify_emotion
 from ai_librarian_core.agents.react.state import Emotion
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
 
 DEFAULT_DATA = (
     Path(__file__).resolve().parent.parent
@@ -35,7 +34,7 @@ def load_rows(path: Path, limit: int | None) -> list[dict[str, str]]:
 
 
 async def predict_all(model: str, rows: list[dict[str, str]]) -> list[str]:
-    llm = init_chat_model(model, temperature=0, max_tokens=16)
+    llm = build_emotion_llm(model)
     semaphore = asyncio.Semaphore(CONCURRENCY)
 
     async def one(row: dict[str, str]) -> str:

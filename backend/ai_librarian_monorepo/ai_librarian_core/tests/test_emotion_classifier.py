@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from ai_librarian_core.agents.react.emotion_classifier import (
     EMOTION_MAX_CHARS,
@@ -68,3 +69,15 @@ def test_classify_emotion_falls_back_to_neutral_and_skips_empty():
     llm = FakeLLM({"emotion": "happy"})
     assert asyncio.run(classify_emotion(llm, "   ")) == Emotion.NEUTRAL
     assert llm.structured.calls == 0
+
+
+def test_classify_emotion_logs_failure_class_without_user_text(caplog):
+    secret = "我先生上個月走了"
+    with caplog.at_level(logging.WARNING):
+        assert asyncio.run(classify_emotion(FakeLLM(RuntimeError("boom")), secret)) == Emotion.NEUTRAL
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "RuntimeError" in warnings[0].getMessage()
+    for record in caplog.records:
+        assert secret not in record.getMessage()
+        assert secret not in str(record.args)
