@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ai_librarian_core.agents.react.base import _cleanup_thread, BaseReactAgent, MissingAIMessageError, ReactAgentError
+from ai_librarian_core.agents.react.emotion_classifier import EmotionOutput
 from ai_librarian_core.agents.react.state import Emotion, MessagesEmotionState
 from ai_librarian_core.models.llm_config import LLMConfig
 from ai_librarian_core.models.used_tool import UsedTool
@@ -11,11 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
-from pydantic import BaseModel, ValidationError
-
-
-class EmotionOutput(BaseModel):
-    emotion: Emotion
+from pydantic import ValidationError
 
 
 @dataclass
