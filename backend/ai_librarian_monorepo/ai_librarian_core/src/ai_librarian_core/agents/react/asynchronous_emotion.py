@@ -17,6 +17,7 @@ from ai_librarian_core.models.used_tool import UsedTool
 from ai_librarian_core.utils.uuid import get_thread_id
 from langchain.chat_models.base import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
@@ -61,20 +62,28 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         except Exception as e:
             raise ReactAgentError("An unexpected error occurred while trying to invoke the chat model.") from e
 
-    async def _detect_emotion(self, state: MessagesEmotionState) -> dict[str, Emotion]:
-        # Runs in parallel with the reply and only looks at the user's latest message.
+    async def _classify_turn(self, state: MessagesEmotionState) -> Emotion:
         try:
             llm = self._emotion_llm
         except Exception:  # noqa: BLE001 - a classifier misconfiguration must never fail the reply
             logger.warning("Emotion classifier model could not be initialised; using neutral.", exc_info=True)
-            return {"emotion": Emotion.NEUTRAL}
+            return Emotion.NEUTRAL
         try:
-            emotion = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 classify_emotion(llm, latest_user_text(state.messages)), EMOTION_TIMEOUT_SECONDS
             )
         except TimeoutError:
             logger.warning("Emotion classification timed out after %.1fs; using neutral.", EMOTION_TIMEOUT_SECONDS)
-            emotion = Emotion.NEUTRAL
+            return Emotion.NEUTRAL
+
+    async def _detect_emotion(self, state: MessagesEmotionState) -> dict[str, Emotion]:
+        # Runs in parallel with the reply and only looks at the user's latest message.
+        emotion = await self._classify_turn(state)
+        # Tell the stream right away: node results (`values`) only arrive at the end of the superstep.
+        try:
+            get_stream_writer()({"emotion": emotion.value})
+        except Exception:  # noqa: BLE001 - outside a stream (e.g. ainvoke, direct call) there is no writer
+            pass
         return {"emotion": emotion}
 
     async def _route(self, state: MessagesEmotionState) -> Literal["tools", "__end__"]:
@@ -141,7 +150,7 @@ class AsyncReactEmotionAgent(BaseReactAgent):
             try:
                 async for item in self.workflow.astream(
                     state,
-                    stream_mode=["messages", "values"],
+                    stream_mode=["messages", "values", "custom"],
                     config={"configurable": {"thread_id": tid}},
                 ):
                     yield item

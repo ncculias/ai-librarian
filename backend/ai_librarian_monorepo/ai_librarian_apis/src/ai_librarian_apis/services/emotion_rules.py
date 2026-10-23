@@ -1,8 +1,6 @@
 """Pure rules deciding which ``emotion`` SSE events to send while a reply streams."""
 
-import json
-from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Literal
 
 from ai_librarian_core.agents.react.state import Emotion
 
@@ -39,55 +37,3 @@ def next_emotion_events(
             return [], turn, last
         return [back], turn, back
     return [], turn, last
-
-
-def content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, Sequence):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                parts.append(part)
-            elif isinstance(part, dict) and part.get("type", "text") == "text":
-                parts.append(str(part.get("text", "")))
-        return "".join(parts)
-    return ""
-
-
-def _to_emotion(value: Any) -> Emotion | None:
-    if isinstance(value, Emotion):
-        return value
-    if isinstance(value, str):
-        try:
-            return Emotion(value)
-        except ValueError:
-            return None
-    return None
-
-
-def parse_emotion_from_message(
-    content: Any,
-    tool_calls: Sequence[Any] | None = None,
-    additional_kwargs: dict[str, Any] | None = None,
-) -> Emotion | None:
-    """Extract the classifier's label from a ``detect_emotion`` message; None if absent or unparsable."""
-    try:
-        text = content_to_text(content).strip()
-        if text:
-            try:
-                data = json.loads(text)
-            except ValueError:
-                data = None
-            if isinstance(data, dict) and (emotion := _to_emotion(data.get("emotion"))):
-                return emotion
-        for call in tool_calls or []:
-            args = call.get("args") if isinstance(call, dict) else None
-            if isinstance(args, dict) and (emotion := _to_emotion(args.get("emotion"))):
-                return emotion
-        parsed = (additional_kwargs or {}).get("parsed")
-        if isinstance(parsed, dict):
-            return _to_emotion(parsed.get("emotion"))
-        return _to_emotion(getattr(parsed, "emotion", None))
-    except Exception:  # noqa: BLE001 - parsing must never break the stream
-        return None

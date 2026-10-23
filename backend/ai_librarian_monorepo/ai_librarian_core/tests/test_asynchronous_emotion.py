@@ -81,3 +81,41 @@ def test_slow_classifier_times_out_to_neutral_without_holding_the_run(monkeypatc
     values = [payload for mode, payload in items if mode == "values"]
     assert values[-1]["emotion"] == Emotion.NEUTRAL
     assert values[-1]["messages"][-1].content == "你好呀"
+
+
+def _custom(items: list[tuple[str, object]]) -> list[object]:
+    return [payload for mode, payload in items if mode == "custom"]
+
+
+def test_detect_emotion_emits_a_custom_chunk_with_the_label():
+    agent = _agent_with_fakes(FakeLLM({"emotion": "sad"}), AIMessage("我在|這裡"))
+    assert _custom(asyncio.run(_collect(agent, "我最近心情很差"))) == [{"emotion": "sad"}]
+
+
+def test_custom_chunk_is_emitted_on_every_fallback_path(monkeypatch):
+    # classifier error
+    agent = _agent_with_fakes(FakeLLM(RuntimeError("boom")), AIMessage("好"))
+    assert _custom(asyncio.run(_collect(agent, "q"))) == [{"emotion": "neutral"}]
+    # blank user text
+    agent = _agent_with_fakes(FakeLLM({"emotion": "happy"}), AIMessage("好"))
+    assert _custom(asyncio.run(_collect(agent, "   "))) == [{"emotion": "neutral"}]
+    # timeout
+    monkeypatch.setattr(module, "EMOTION_TIMEOUT_SECONDS", 0.05)
+    agent = _agent_with_fakes(SlowLLM(delay=5), AIMessage("好"))
+    assert _custom(asyncio.run(_collect(agent, "q"))) == [{"emotion": "neutral"}]
+
+    # model init failure
+    def boom(*_args, **_kwargs):
+        raise ValueError("missing api key")
+
+    monkeypatch.setattr(classifier_module, "init_chat_model", boom)
+    agent = AsyncReactEmotionAgent(tools=[])
+    agent._llm_cache[LLMConfig()] = FakeReplyLLM(replies=[AIMessage("好")])
+    assert _custom(asyncio.run(_collect(agent, "q"))) == [{"emotion": "neutral"}]
+
+
+def test_run_without_a_stream_still_returns_the_emotion():
+    agent = _agent_with_fakes(FakeLLM({"emotion": "happy"}), AIMessage("太好了"))
+    message, _tools, emotion = asyncio.run(agent.run([HumanMessage("終於找到了！")]))
+    assert emotion == Emotion.HAPPY
+    assert message.content == "太好了"

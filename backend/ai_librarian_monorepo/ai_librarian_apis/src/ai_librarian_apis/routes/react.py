@@ -13,12 +13,7 @@ from ai_librarian_apis.schemas.react import (
     OpenAIMessage,
 )
 from ai_librarian_apis.schemas.sse import EmotionPayload, EventPayload, LLMChunkPayload, SSEEvent, ToolPayload
-from ai_librarian_apis.services.emotion_rules import (
-    EmotionEventKind,
-    content_to_text,
-    next_emotion_events,
-    parse_emotion_from_message,
-)
+from ai_librarian_apis.services.emotion_rules import EmotionEventKind, next_emotion_events
 from ai_librarian_apis.utils.sse_example import get_sse_response_example
 from ai_librarian_core.agents.react.state import Emotion
 from ai_librarian_core.models.llm_config import Model
@@ -173,6 +168,10 @@ async def _shutdown_stream(iterator: Any, next_item: "asyncio.Future | None") ->
             next_item.cancel()
             # Wait until the cancelled call has really finished; closing a running generator raises.
             await asyncio.wait({next_item}, timeout=_SHUTDOWN_WAIT_SECONDS)
+            if not next_item.done():
+                # Still running past the bound: retrieve its outcome later so asyncio never logs
+                # "Task exception was never retrieved".
+                next_item.add_done_callback(lambda t: t.cancelled() or t.exception())
         if next_item.done() and not next_item.cancelled():
             next_item.exception()  # mark retrieved
     aclose = getattr(iterator, "aclose", None)
@@ -275,7 +274,6 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
         turn_emotion: Emotion | None = None  # the user's emotion for this turn, once detected
         last_emotion: Emotion | None = None  # what the client was last told
         detect_seen = False  # a detect_emotion chunk has arrived, so state.emotion is meaningful
-        detect_buffer = ""
         state_emotion: Emotion | None = None  # latest emotion seen in a `values` state
         hold_over = False  # stop holding reply events (emotion arrived, or waited too long)
         pending: list[ToolMessage | AIMessage] = []  # reply messages held back until the emotion is known
@@ -320,20 +318,35 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
             return [event for message in held for event in reply_events(message)]
 
         def on_chunk(chunk: object) -> list[str]:
-            nonlocal detect_seen, detect_buffer, state_emotion
+            nonlocal detect_seen, state_emotion
             mode: str
             payload: object
             if (
                 isinstance(chunk, tuple)
                 and len(chunk) == 2
                 and isinstance(chunk[0], str)
-                and chunk[0] in {"messages", "values"}
+                and chunk[0] in {"messages", "values", "custom"}
             ):
                 mode, payload = chunk
             else:
                 mode, payload = "messages", chunk
 
             events: list[str] = []
+            if mode == "custom":
+                # detect_emotion writes {"emotion": ...} the moment it has decided: the authoritative result.
+                if not (isinstance(payload, dict) and "emotion" in payload):
+                    return events
+                detect_seen = True
+                try:
+                    detected: Emotion | None = Emotion(str(payload["emotion"]))
+                except ValueError:
+                    logger.warning("detect_emotion sent an unknown emotion; releasing the held reply.")
+                    detected = None
+                if turn_emotion is None:
+                    events += emotion_events("state", detected)
+                if pending:
+                    events += release()
+                return events
             if mode == "messages":
                 metadata: dict[str, Any] | None = None
                 if isinstance(payload, tuple) and len(payload) == 2:
@@ -342,14 +355,8 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                     message = payload
 
                 if metadata and metadata.get("langgraph_node") == "detect_emotion":
-                    # The classifier's own output: send the user's emotion as soon as it parses.
+                    # The classifier's own tokens are not part of the reply; its result arrives as a custom chunk.
                     detect_seen = True
-                    if turn_emotion is None and isinstance(message, AIMessage):
-                        detect_buffer += content_to_text(message.content)
-                        detected = parse_emotion_from_message(
-                            message.content, message.tool_calls, message.additional_kwargs
-                        ) or parse_emotion_from_message(detect_buffer)
-                        events += emotion_events("state", detected)
                 elif isinstance(message, ToolMessage | AIMessage):
                     # The classifier can finish a little after the reply's first token; hold the reply back
                     # briefly so the emotion always reaches the client first.
@@ -368,11 +375,9 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                     state_emotion = Emotion(str(state_dict.get("emotion")))
                 except ValueError:
                     return events
-                # Fallback when the classifier chunk could not be parsed: the state still has its label.
+                # Fallback when the classifier ran but its custom chunk never came: the state still has its label.
                 if detect_seen and turn_emotion is None:
-                    logger.warning(
-                        "detect_emotion chunks did not parse; falling back to state emotion %s.", state_emotion
-                    )
+                    logger.warning("No detect_emotion result chunk; falling back to state emotion %s.", state_emotion)
                     events += emotion_events("state", state_emotion)
 
             if turn_emotion is not None and pending:
@@ -413,7 +418,7 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
 
             for event_str in release() if pending else []:
                 yield event_str
-            # Fallback when no classifier chunk ever arrived (e.g. classifier failed -> neutral in state).
+            # Fallback when no detect result ever arrived: the final state still carries the turn's emotion.
             if turn_emotion is None and state_emotion is not None:
                 for event_str in emotion_events("state", state_emotion):
                     yield event_str
