@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 顏如玉的情緒判斷有明確標準、結果穩定、查工具時立刻做思考動作，並有評估集可量測準確率。
+**Goal:** 顏如玉依**使用者最新一句**的情緒先反應（回覆開始前就換表情），判斷標準明確、結果穩定，查資料時做思考動作，並有評估集可量測準確率。
 
-**Architecture:** 判斷邏輯抽成 `emotion_classifier.py`（純函式 + 一個用 stub 可測的 async 分類函式）；`AsyncReactEmotionAgent._detect_emotion` 只負責挑訊息與呼叫；API 串流在 `tool_chosen` 時多送一個 `think` 情緒事件；前端加一個對應並把延伸問題改走無情緒 agent；評估腳本獨立於測試。
+**Architecture:** 判斷邏輯抽成 `emotion_classifier.py`（純函式 + 用 stub 可測的 async 分類函式）；`AsyncReactEmotionAgent` 把 `detect_emotion` 改成與 `invoke_llm` 平行的分支（只看使用者訊息）；API 串流在情緒 state 一出現就送事件，`tool_chosen` 時依規則補 `think`、`llm_start` 時切回；前端刪 `anger`、加 `think` 對應並把延伸問題改走無情緒 agent；評估腳本獨立於測試。
 
 **Tech Stack:** Python 3.13、LangChain `init_chat_model` / `with_structured_output`、LangGraph、pytest（`uv run --group dev pytest`）；前端 TypeScript（`node --test`）。
 
@@ -12,173 +12,204 @@
 
 ## Global Constraints
 
-- 標籤：`neutral / happy / sad / angry / surprised / think`；`Emotion` 列舉保留既有值（含 `anger`），新增 `THINK = "think"`。分類器只會輸出這六個；例外或驗證失敗 → `NEUTRAL`。
-- 分類用 LLM：`EMOTION_MODEL` 預設 `"openai:gpt-5.4-mini"`（環境變數可覆蓋）、`temperature=0`、`max_tokens=16`，與聊天的 `llm_config` 無關。
-- 輸入只取最後一則 HumanMessage 與最後一則 AIMessage，各截前 `EMOTION_MAX_CHARS = 300` 字。
-- 提示詞為中文、含 §3 的六個定義與「拿不準回 neutral」。
-- 串流：第一個 `tool_chosen` 事件之後立刻 yield `emotion=think`（同一輪只送一次）；`detect_emotion` 結果與上一次不同才送（既有邏輯）。
-- `emotion` SSE 事件格式不變。
-- 前端：`EMOTION_MAP` 加 `think: "think"`（`surprised` 維持 `think`）；延伸問題 URL 改 `/v1/react/run`。
-- 單元測試不打網路；後端測試指令 `cd backend && uv run --group dev pytest -q`；前端 `cd frontend && npx tsc -b && npm test`。
-- 評估腳本需要金鑰、手動執行，不進測試。
+- `Emotion` 列舉 = `NEUTRAL "neutral"`, `HAPPY "happy"`, `SAD "sad"`, `ANGRY "angry"`, `SURPRISED "surprised"`, `THINK "think"`；`ANGER` 刪除（全 repo grep 無殘留）。
+- 分類 LLM：`EMOTION_MODEL` 預設 `"openai:gpt-5.4-mini"`（環境變數可覆蓋）、`temperature=0`、`max_tokens=16`，與聊天 `llm_config` 無關；只讀最後一則 `HumanMessage` 的前 `EMOTION_MAX_CHARS = 300` 字；空字串不呼叫 LLM、直接 `NEUTRAL`；例外/驗證失敗 → `NEUTRAL`。
+- 提示詞中文，含 spec §3 的六個定義＋例句與七條規則。
+- 工作流：`clear_used_tools` 同時進入 `detect_emotion`（→ END）與 `invoke_llm`（→ tools 迴圈 → END）；`detect_emotion` 不再接在回覆之後。
+- 串流規則：情緒 state 出現即送（`turn_emotion`）；第一個 `tool_chosen` 且 `turn_emotion ∈ {None, NEUTRAL}` 且 `last_emotion ≠ THINK` → 送 `think`；第一個 `llm_start` 且 `last_emotion == THINK` → 送 `turn_emotion or NEUTRAL`；同值不重送；事件格式不變。
+- 前端：`EMOTION_MAP` = `neutral→normal, happy→happy, angry→angry, sad→sad, surprised→think, think→think`；延伸問題 URL `/v1/react/run`。
+- 單元測試不打網路；後端 `cd backend && uv run --group dev pytest -q`；前端 `cd frontend && npx tsc -b && npm test`。評估腳本需金鑰、手動執行。
 
 ## Review Focus
 
-1. 回覆沒有工具呼叫（純聊天）→ 不會送 `think`，只送最終情緒。（Task 3 驗證 2）
-2. 一輪用了兩個工具 → `think` 只送一次。（Task 3 單元測試）
-3. 分類 LLM 回傳不在列舉內或拋例外 → `neutral`，串流不中斷。（Task 1 測試）
-4. 對話裡沒有 AIMessage（例如 LLM 失敗）→ `pick_turn` 回空字串、分類回 `neutral`，不丟例外。（Task 1 測試）
-5. 舊前端（沒有 `think` 對應）收到 `think` → `mapEmotion` 回 null、忽略，不壞。（Task 3：前端測試 `mapEmotion("think")`）
+1. 使用者說「我最近心情很差」再問天氣（查工具）→ 情緒 sad 先送達、查工具期間**不**被 think 蓋掉、回覆開始也不切回 normal。（Task 3 單元測試 + 驗證 2）
+2. 使用者 neutral 且一輪用兩個工具 → `think` 只送一次，`llm_start` 時送回 neutral 一次。（Task 3 單元測試）
+3. 分類 LLM 拋例外或回傳不在列舉內 → `neutral`，主回覆串流不受影響。（Task 1 測試；Task 2 驗證）
+4. 對話只有 system 訊息、沒有 HumanMessage → `latest_user_text` 回空字串、不呼叫 LLM。（Task 1 測試）
+5. 舊前端收到 `think`／不再收到 `anger` → `mapEmotion("think")` 有對應、`mapEmotion("anger")` 回 null 不壞。（Task 3 前端測試）
 
 ---
 
-### Task 1: `emotion_classifier.py` + `Emotion.THINK` + 單元測試
+### Task 1: `emotion_classifier.py` + `Emotion` 列舉整理 + 單元測試
 
 **Files:**
-- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/state.py:18-24`（加 `THINK = "think"`）
+- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/state.py:18-24`
 - Create: `backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/emotion_classifier.py`
-- Create: `backend/ai_librarian_monorepo/ai_librarian_core/tests/__init__.py`（空）、`backend/ai_librarian_monorepo/ai_librarian_core/tests/test_emotion_classifier.py`
+- Create: `backend/ai_librarian_monorepo/ai_librarian_core/tests/__init__.py`、`backend/ai_librarian_monorepo/ai_librarian_core/tests/test_emotion_classifier.py`
+- Modify: 所有引用 `Emotion.ANGER` 的地方（`grep -rn "ANGER\b\|\"anger\"" backend --include=*.py`）
 
 **Interfaces:**
 - Produces:
   ```python
-  EMOTION_MODEL: str            # os.environ.get("EMOTION_MODEL", "openai:gpt-5.4-mini")
-  EMOTION_MAX_CHARS: int = 300
-  EMOTION_PROMPT: str           # 中文，含六個標籤定義
-  class EmotionOutput(BaseModel): emotion: Emotion   # 從 asynchronous_emotion.py 搬來
-  def pick_turn(messages: Sequence[BaseMessage]) -> tuple[str, str]
-  def build_emotion_input(user_text: str, reply_text: str) -> str
-  async def classify_emotion(llm, user_text: str, reply_text: str) -> Emotion
+  EMOTION_MODEL: str; EMOTION_MAX_CHARS: int = 300; EMOTION_PROMPT: str
+  class EmotionOutput(BaseModel): emotion: Emotion      # 從 asynchronous_emotion.py 搬來
+  def latest_user_text(messages: Sequence[BaseMessage]) -> str
+  def build_emotion_input(user_text: str) -> str
+  async def classify_emotion(llm, user_text: str) -> Emotion
   ```
 
 - [ ] **Step 1: 寫失敗測試** `tests/test_emotion_classifier.py`
 
 ```python
-import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+import asyncio
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from ai_librarian_core.agents.react.emotion_classifier import (
-    EMOTION_MAX_CHARS, EMOTION_PROMPT, build_emotion_input, classify_emotion, pick_turn,
+    EMOTION_MAX_CHARS, EMOTION_PROMPT, EmotionOutput, build_emotion_input, classify_emotion, latest_user_text,
 )
 from ai_librarian_core.agents.react.state import Emotion
 
 
 class _Structured:
-    def __init__(self, result): self.result = result
+    def __init__(self, result): self.result = result; self.calls = 0
     async def ainvoke(self, _prompt):
+        self.calls += 1
         if isinstance(self.result, Exception): raise self.result
         return self.result
 
 
 class _FakeLLM:
-    def __init__(self, result): self.result = result
-    def with_structured_output(self, _schema): return _Structured(self.result)
+    def __init__(self, result): self.structured = _Structured(result)
+    def with_structured_output(self, _schema): return self.structured
 
 
-def test_pick_turn_takes_last_human_and_last_ai_and_ignores_tools():
-    msgs = [HumanMessage("舊問題"), AIMessage("舊回覆"), HumanMessage("我最近很難過"),
-            AIMessage("", tool_calls=[{"name": "x", "args": {}, "id": "1"}]), ToolMessage("輸出", tool_call_id="1"),
-            AIMessage("聽到這件事我也覺得難過。")]
-    assert pick_turn(msgs) == ("我最近很難過", "聽到這件事我也覺得難過。")
-
-
-def test_pick_turn_without_ai_message_returns_empty_reply():
-    assert pick_turn([HumanMessage("哈囉")]) == ("哈囉", "")
-    assert pick_turn([]) == ("", "")
+def test_latest_user_text_takes_last_human_message_only():
+    msgs = [SystemMessage("sys"), HumanMessage("舊問題"), AIMessage("舊回覆"), HumanMessage("我最近心情很差"),
+            AIMessage("", tool_calls=[{"name": "x", "args": {}, "id": "1"}]), ToolMessage("輸出", tool_call_id="1")]
+    assert latest_user_text(msgs) == "我最近心情很差"
+    assert latest_user_text([SystemMessage("sys")]) == ""
+    assert latest_user_text([]) == ""
 
 
 def test_build_emotion_input_truncates_and_contains_prompt_and_labels():
-    text = build_emotion_input("使" * 500, "回" * 500)
+    text = build_emotion_input("使" * 500)
     assert text.startswith(EMOTION_PROMPT)
-    assert text.count("使") == EMOTION_MAX_CHARS and text.count("回") == EMOTION_MAX_CHARS
+    assert text.count("使") == EMOTION_MAX_CHARS
     for label in ("happy", "sad", "angry", "surprised", "think", "neutral"):
         assert label in EMOTION_PROMPT
+    for rule in ("最新", "禮貌", "拿不準"):
+        assert rule in EMOTION_PROMPT
 
 
-@pytest.mark.asyncio
-async def test_classify_emotion_returns_model_label():
-    from ai_librarian_core.agents.react.emotion_classifier import EmotionOutput
-    assert await classify_emotion(_FakeLLM(EmotionOutput(emotion=Emotion.THINK)), "q", "a") == Emotion.THINK
-    assert await classify_emotion(_FakeLLM({"emotion": "sad"}), "q", "a") == Emotion.SAD
+def test_emotion_enum_has_no_anger_and_has_think():
+    assert {e.value for e in Emotion} == {"neutral", "happy", "sad", "angry", "surprised", "think"}
 
 
-@pytest.mark.asyncio
-async def test_classify_emotion_falls_back_to_neutral():
-    assert await classify_emotion(_FakeLLM(RuntimeError("boom")), "q", "a") == Emotion.NEUTRAL
-    assert await classify_emotion(_FakeLLM({"emotion": "ecstatic"}), "q", "a") == Emotion.NEUTRAL
-    assert await classify_emotion(_FakeLLM(None), "", "") == Emotion.NEUTRAL
+def test_classify_emotion_returns_model_label():
+    assert asyncio.run(classify_emotion(_FakeLLM(EmotionOutput(emotion=Emotion.THINK)), "我在想要不要讀")) == Emotion.THINK
+    assert asyncio.run(classify_emotion(_FakeLLM({"emotion": "sad"}), "心情很差")) == Emotion.SAD
+
+
+def test_classify_emotion_falls_back_to_neutral_and_skips_empty():
+    assert asyncio.run(classify_emotion(_FakeLLM(RuntimeError("boom")), "q")) == Emotion.NEUTRAL
+    assert asyncio.run(classify_emotion(_FakeLLM({"emotion": "ecstatic"}), "q")) == Emotion.NEUTRAL
+    llm = _FakeLLM({"emotion": "happy"})
+    assert asyncio.run(classify_emotion(llm, "   ")) == Emotion.NEUTRAL
+    assert llm.structured.calls == 0
 ```
-（若 `pytest-asyncio` 未安裝：改用 `asyncio.run(...)` 包住 await，不新增依賴。）
 
-- [ ] **Step 2: 跑測試確認失敗**：`cd backend && uv run --group dev pytest -q ai_librarian_monorepo/ai_librarian_core/tests` → FAIL（module not found）
+- [ ] **Step 2: 跑測試確認失敗**：`cd backend && uv run --group dev pytest -q ai_librarian_monorepo/ai_librarian_core/tests` → FAIL
 
 - [ ] **Step 3: 實作**
 
-- `state.py`：`THINK = "think"` 加在列舉最後。
-- `emotion_classifier.py`：`EMOTION_PROMPT` 照 spec §3 的表格寫成中文段落（判斷對象 + 六個定義各一行例句 + 規則）；`pick_turn` 從後往前找第一個 `HumanMessage` 與第一個 `content` 非空的 `AIMessage`；`build_emotion_input` = `f"{EMOTION_PROMPT}\n\n使用者：{user[:300]}\n館員回覆：{reply[:300]}\n\n只回傳 emotion 欄位。"`；`classify_emotion`：`structured = llm.with_structured_output(EmotionOutput)`，`result = await structured.ainvoke(build_emotion_input(...))`，接受 `EmotionOutput`、dict（取 `emotion`）或帶 `.emotion` 屬性的物件，`Emotion(value)` 失敗或任何例外 → `NEUTRAL`。
-- `EmotionOutput` 搬到此模組，`asynchronous_emotion.py` 改從這裡 import（Task 2 再接線，本任務只確保可 import）。
+- `state.py`：列舉改為 `NEUTRAL, HAPPY, SAD, ANGRY, SURPRISED, THINK`（刪 `ANGER`）；修掉其他引用。
+- `emotion_classifier.py`：`EMOTION_PROMPT` 照 spec §3（開頭說明 + 六行定義與例句 + 七條規則）；`latest_user_text` 從後往前找第一個 `HumanMessage`（content 若是 list 取其中 text 部分合併）；`build_emotion_input` = `f"{EMOTION_PROMPT}\n\n使用者最新的一句話：{text[:EMOTION_MAX_CHARS]}\n\n只回傳 emotion 欄位。"`；`classify_emotion`：`text.strip()` 為空 → `NEUTRAL`；否則 `structured = llm.with_structured_output(EmotionOutput)`、`await structured.ainvoke(...)`，接受 `EmotionOutput` / dict / 有 `.emotion` 的物件，`Emotion(value)` 失敗或任何例外 → `NEUTRAL`。
+- `EmotionOutput` 搬到此模組；`asynchronous_emotion.py` 改從這裡 import（Task 2 再改流程，本任務只確保可 import、測試可過）。
 
-- [ ] **Step 4: 驗證**：測試全綠；`uv run ruff check` 與 `pyright`（若專案有設定）無新錯誤。
+- [ ] **Step 4: 驗證**：測試全綠；`grep -rn "ANGER\b" backend --include=*.py` 為 0；`uv run ruff check` 無新錯誤。
 
 - [ ] **Step 5: Commit**
 ```bash
-git add backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/state.py backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/emotion_classifier.py backend/ai_librarian_monorepo/ai_librarian_core/tests
-git commit -m "feat(core): emotion classifier with Chinese criteria, fixed cheap model, think label"
+git add backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/state.py backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/emotion_classifier.py backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/asynchronous_emotion.py backend/ai_librarian_monorepo/ai_librarian_core/tests
+git commit -m "feat(core): user-message emotion classifier with Chinese criteria; merge anger into angry; add think"
 ```
 
 ---
 
-### Task 2: `_detect_emotion` 接上分類器
+### Task 2: `detect_emotion` 改為與回覆平行、只看使用者訊息
 
 **Files:**
-- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/asynchronous_emotion.py:17-19`（刪本地 `EmotionOutput`，改 import）、`:46-80`（重寫 `_detect_emotion`）
-- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/tests/test_emotion_classifier.py`（加一個 agent 層測試，或新檔 `test_asynchronous_emotion.py`）
+- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/asynchronous_emotion.py:46-121`（`_detect_emotion`、`_route`、`_init_workflow`）
+- Create: `backend/ai_librarian_monorepo/ai_librarian_core/tests/test_asynchronous_emotion.py`
 
 **Interfaces:**
-- Consumes: Task 1 全部。
-- Produces: `AsyncReactEmotionAgent._emotion_llm` 屬性（lazy，`init_chat_model(EMOTION_MODEL, temperature=0, max_tokens=16)`），可在測試中被替換成 `_FakeLLM`。
+- Consumes: Task 1。
+- Produces: `AsyncReactEmotionAgent._emotion_llm`（lazy，`init_chat_model(EMOTION_MODEL, temperature=0, max_tokens=16)`，測試可直接指定為 `_FakeLLM`）；`_route` 回 `"tools"` 或 `END`。
 
 - [ ] **Step 1: 寫失敗測試**
 
 ```python
-@pytest.mark.asyncio
-async def test_detect_emotion_uses_classifier_on_last_turn(monkeypatch):
+def test_detect_emotion_reads_latest_user_message(monkeypatch):
     agent = AsyncReactEmotionAgent(tools=[])
-    agent._emotion_llm = _FakeLLM({"emotion": "sad"})       # 不碰網路
-    state = MessagesEmotionState(messages=[HumanMessage("我最近很難過"), AIMessage("我在這裡陪你。")])
-    assert await agent._detect_emotion(state) == {"emotion": Emotion.SAD}
+    agent._emotion_llm = _FakeLLM({"emotion": "sad"})
+    state = MessagesEmotionState(messages=[HumanMessage("我最近心情很差"), AIMessage("我在這裡陪你。")])
+    assert asyncio.run(agent._detect_emotion(state)) == {"emotion": Emotion.SAD}
+
+
+def test_workflow_runs_detect_emotion_in_parallel_with_llm():
+    agent = AsyncReactEmotionAgent(tools=[])
+    graph = agent.workflow.get_graph()
+    edges = {(e.source, e.target) for e in graph.edges}
+    assert ("clear_used_tools", "detect_emotion") in edges
+    assert ("clear_used_tools", "invoke_llm") in edges
+    assert ("detect_emotion", "__end__") in edges
+    assert not any(src == "invoke_llm" and dst == "detect_emotion" for src, dst in edges)
 ```
 
-- [ ] **Step 2: 實作**：`_detect_emotion`：`user, reply = pick_turn(state.messages)`；`return {"emotion": await classify_emotion(self._emotion_llm, user, reply)}`。`_emotion_llm` 用 `functools.cached_property` 或 `__post_init__` 內 lazy 屬性；不再使用 `state.llm_config`。
+- [ ] **Step 2: 實作**：`_detect_emotion` → `{"emotion": await classify_emotion(self._emotion_llm, latest_user_text(state.messages))}`；`_route` 的非工具分支回 `END`（`Literal["tools", "__end__"]`）；`_init_workflow` 照 spec §6 的平行邊；`_emotion_llm` 用 `functools.cached_property`（dataclass 可用）或 `__post_init__` 內設 `None` + 首次使用時建立。`run()` 仍回傳 `result["emotion"]`。
 
-- [ ] **Step 3: 驗證**：`uv run --group dev pytest -q`；本機 Docker 後端重建（`docker compose up -d --build backend`）後問一句「我今天心情很差」，`docker logs` 看到分類請求用的是 `gpt-5.4-mini`、`temperature: 0`，前端收到 `emotion` 事件。
+- [ ] **Step 3: 驗證**：`uv run --group dev pytest -q`；本機 `docker compose up -d --build backend` 後，在聊天頁送「我最近心情很差」：`docker logs` 看到分類請求（`gpt-5.4-mini`、`temperature: 0`）與主回覆請求幾乎同時發出；前端 emotion 標籤在回覆文字出現前就變 sad。
 
 - [ ] **Step 4: Commit**
 ```bash
 git add backend/ai_librarian_monorepo/ai_librarian_core/src/ai_librarian_core/agents/react/asynchronous_emotion.py backend/ai_librarian_monorepo/ai_librarian_core/tests
-git commit -m "feat(core): detect_emotion judges only the last turn with the dedicated classifier"
+git commit -m "feat(core): detect user emotion in parallel with the reply, before any text streams"
 ```
 
 ---
 
-### Task 3: 查工具時送 `think`；前端對應與延伸問題改路由
+### Task 3: 串流規則（情緒先送、think 補送與切回）；前端對應與延伸問題改路由
 
 **Files:**
 - Modify: `backend/ai_librarian_monorepo/ai_librarian_apis/src/ai_librarian_apis/routes/react.py:243-330`（`stream_react_emotion_agent`）
+- Create: `backend/ai_librarian_monorepo/ai_librarian_apis/tests/__init__.py`、`backend/ai_librarian_monorepo/ai_librarian_apis/tests/test_emotion_stream_rules.py`
 - Modify: `frontend/src/components/live2d/yanruyu.ts:20-27`、`frontend/src/components/live2d/yanruyu.test.ts`、`frontend/src/hooks/useLLMStream.ts:153`
 
 **Interfaces:**
-- Consumes: `Emotion.THINK`。
+- Produces（apis）：純函式 `next_emotion_events(kind: Literal["state","tool_chosen","llm_start"], value: Emotion | None, turn: Emotion | None, last: Emotion | None) -> tuple[list[Emotion], Emotion | None, Emotion | None]` 回傳（要送的情緒列表、新的 turn、新的 last），放在 `routes/react.py` 或新檔 `services/emotion_rules.py`，串流路由只呼叫它。
 
-- [ ] **Step 1: 後端**：在 `mode == "messages"` 分支，當 `_process_ai_message` 回傳的事件是 `TOOL_CHOSEN`（判斷方式：`message.tool_calls` 非空）且 `last_emotion is not Emotion.THINK`，先 yield 該事件，再 yield 一個 `EMOTION` 事件 `emotion=Emotion.THINK`，並設 `last_emotion = Emotion.THINK`。（`detect_emotion` 之後的最終情緒與 think 不同時照常送出。）
-- [ ] **Step 2: 前端**：`EMOTION_MAP` 加 `think: "think"`；測試加 `assert.equal(mapEmotion("think"), "think")`；`requestFollowUps` 的 URL 改為 `${API_BASE}/v1/react/run`（`react_router` 的 `/run` 存在，見 `react.py:51`）。
-- [ ] **Step 3: 驗證**：前端 `npx tsc -b && npm test`；後端重建後在瀏覽器：
-  1. 問「請幫我查詢今天台北的天氣」→ 查工具期間顏如玉做思考動作（emotion 標籤顯示 think），回覆完切到最終情緒（多半 neutral）。
-  2. 問「你好」（不查工具）→ 沒有 think，直接最終情緒。（Review Focus 1）
-  3. `docker logs` 確認 `/v1/react/run` 不再觸發分類請求。
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: 寫失敗測試**（規則表，對應 spec §4）
+
+```python
+from ai_librarian_apis.services.emotion_rules import next_emotion_events as nxt
+from ai_librarian_core.agents.react.state import Emotion as E
+
+def test_state_emotion_is_sent_once():
+    assert nxt("state", E.SAD, None, None) == ([E.SAD], E.SAD, E.SAD)
+    assert nxt("state", E.SAD, E.SAD, E.SAD) == ([], E.SAD, E.SAD)
+
+def test_think_only_when_turn_is_neutral_and_only_once():
+    assert nxt("tool_chosen", None, None, None) == ([E.THINK], None, E.THINK)
+    assert nxt("tool_chosen", None, E.NEUTRAL, E.NEUTRAL) == ([E.THINK], E.NEUTRAL, E.THINK)
+    assert nxt("tool_chosen", None, E.SAD, E.SAD) == ([], E.SAD, E.SAD)
+    assert nxt("tool_chosen", None, E.NEUTRAL, E.THINK) == ([], E.NEUTRAL, E.THINK)
+
+def test_llm_start_switches_back_from_think():
+    assert nxt("llm_start", None, E.NEUTRAL, E.THINK) == ([E.NEUTRAL], E.NEUTRAL, E.NEUTRAL)
+    assert nxt("llm_start", None, None, E.THINK) == ([E.NEUTRAL], None, E.NEUTRAL)
+    assert nxt("llm_start", None, E.SAD, E.SAD) == ([], E.SAD, E.SAD)
+```
+
+- [ ] **Step 2: 實作**：`services/emotion_rules.py` 純函式；串流路由：`values` 模式只要 state 有 `emotion` 就走 `"state"`；`_process_ai_message` 產生 `TOOL_CHOSEN`（`message.tool_calls` 非空）後走 `"tool_chosen"`；產生 `LLM_START`（`has_llm_started` 由 False 變 True）後走 `"llm_start"`；每個回傳的情緒各 yield 一個 `EMOTION` 事件。移除原本「`langgraph_node == detect_emotion` 才 `emotion_ready`」的門檻。
+- [ ] **Step 3: 前端**：`EMOTION_MAP` 刪 `anger`、加 `think: "think"`；測試改 `assert.equal(mapEmotion("anger"), null)`、加 `assert.equal(mapEmotion("think"), "think")`；`requestFollowUps` URL → `/v1/react/run`。
+- [ ] **Step 4: 驗證**：前端 `npx tsc -b && npm test`；後端 `uv run --group dev pytest -q`；重建後端後在瀏覽器：
+  1. 「請幫我查今天台北的天氣」→ 送出後立刻 neutral、查工具時 think（托腮）、回覆開始切回 normal。
+  2. 「我最近心情很差，幫我查台北天氣」→ 立刻 sad，查工具與回覆期間維持 sad。（Review Focus 1）
+  3. 「你好」→ 沒有 think。
+  4. `docker logs` 確認 `/v1/react/run` 不觸發分類請求。
+- [ ] **Step 5: Commit**
 ```bash
-git add backend/ai_librarian_monorepo/ai_librarian_apis/src/ai_librarian_apis/routes/react.py frontend/src/components/live2d/yanruyu.ts frontend/src/components/live2d/yanruyu.test.ts frontend/src/hooks/useLLMStream.ts
-git commit -m "feat(emotion): emit think while tools run; follow-up questions skip emotion detection"
+git add backend/ai_librarian_monorepo/ai_librarian_apis/src/ai_librarian_apis frontend/src/components/live2d/yanruyu.ts frontend/src/components/live2d/yanruyu.test.ts frontend/src/hooks/useLLMStream.ts backend/ai_librarian_monorepo/ai_librarian_apis/tests
+git commit -m "feat(emotion): send user emotion before the reply, think while tools run; follow-ups skip detection"
 ```
 
 ---
@@ -186,15 +217,15 @@ git commit -m "feat(emotion): emit think while tools run; follow-up questions sk
 ### Task 4: 評估集與腳本，記錄基準
 
 **Files:**
-- Create: `backend/ai_librarian_monorepo/ai_librarian_core/tests/data/emotion_eval.jsonl`（30 筆：每標籤 5 筆中文樣本，`{"user","reply","label"}`）
+- Create: `backend/ai_librarian_monorepo/ai_librarian_core/tests/data/emotion_eval.jsonl`（36 筆：每標籤 6 筆，`{"user","label"}`，含規則 2/4/5 的邊界案例）
 - Create: `backend/scripts/eval_emotion.py`
-- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/README.md`（加「情緒判斷評估」一節：怎麼標、怎麼跑）
+- Modify: `backend/ai_librarian_monorepo/ai_librarian_core/README.md`（加「情緒判斷評估」一節：標註準則連結 spec §3、怎麼跑、基準數字）
 
-- [ ] **Step 1: 腳本**：讀 jsonl → 對每筆呼叫 `classify_emotion(init_chat_model(EMOTION_MODEL, temperature=0, max_tokens=16), user, reply)` → 印整體準確率、每標籤的 precision/recall、6×6 混淆矩陣（純文字表格）；參數 `--limit N`、`--model`。
-- [ ] **Step 2: 樣本**：30 筆涵蓋六標籤，含 5 筆刻意的邊界案例（禮貌用語但內容中性 → neutral；使用者難過但回覆在查資料 → sad）。
-- [ ] **Step 3: 跑一次基準**：`cd backend && uv run python scripts/eval_emotion.py`（需 `OPENAI_API_KEY`）；把準確率與混淆矩陣貼進 README 該節作為 v2 基準。
+- [ ] **Step 1: 腳本**：讀 jsonl → 逐筆 `classify_emotion(init_chat_model(EMOTION_MODEL, temperature=0, max_tokens=16), user)` → 印整體準確率、每標籤 precision/recall、6×6 混淆矩陣（純文字）；參數 `--limit N`、`--model`、`--show-errors`（列出判錯的句子）。
+- [ ] **Step 2: 樣本**：36 筆，邊界案例至少：「有沒有關於喪親的書」→ neutral、「謝謝」→ neutral、「嗯」→ neutral、「我媽媽走了，想找書看」→ sad、「什麼？絕版了？」→ surprised、「不知道該選哪本」→ think。
+- [ ] **Step 3: 跑基準**：`cd backend && uv run python scripts/eval_emotion.py --show-errors`（需 `OPENAI_API_KEY`），把準確率與混淆矩陣貼進 README 作為 v2 基準；判錯的句子列進報告供調整提示詞。
 - [ ] **Step 4: Commit**
 ```bash
 git add backend/ai_librarian_monorepo/ai_librarian_core/tests/data/emotion_eval.jsonl backend/scripts/eval_emotion.py backend/ai_librarian_monorepo/ai_librarian_core/README.md
-git commit -m "feat(emotion): labelled evaluation set and accuracy/confusion script with v2 baseline"
+git commit -m "feat(emotion): labelled evaluation set (user sentences) and accuracy/confusion script with v2 baseline"
 ```
