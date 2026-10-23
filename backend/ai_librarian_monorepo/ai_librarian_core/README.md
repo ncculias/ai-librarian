@@ -268,7 +268,9 @@ cd backend && uv run python scripts/eval_emotion.py --show-errors
 
 **v2 基準**（2026-10-23，`openai:gpt-5.4-mini`）：準確率 36/36 = 100%。這組樣本偏容易，適合當回歸煙霧測試；要比較提示詞改動，請再加入多情緒混合（規則 3）與客氣但不開心（規則 4）的難例。
 
-`EMOTION_MODEL` 在匯入時讀取，因此只有 shell 匯出或 `--model` 會生效，寫在 `.env` 裡不會改變預設模型。
+`EMOTION_MODEL` 在匯入時讀取：用 Docker 跑時（`env_file` 會把 `.env` 注入容器環境）寫在 `.env` 即可生效；直接 `uv run` 啟動後端或跑評估腳本時，請用 shell 匯出（`export EMOTION_MODEL=...`）或評估腳本的 `--model`。
+
+隱私：使用者的每句話也會送到 OpenAI（情緒判斷模型），不論回覆用哪家模型。
 
 ```text
              neutral     happy       sad     angry surprised     think
