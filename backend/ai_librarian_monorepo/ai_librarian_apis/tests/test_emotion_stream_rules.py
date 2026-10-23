@@ -19,6 +19,7 @@ def test_llm_start_switches_back_from_think():
     assert nxt("llm_start", None, E.NEUTRAL, E.THINK) == ([E.NEUTRAL], E.NEUTRAL, E.NEUTRAL)
     assert nxt("llm_start", None, None, E.THINK) == ([E.NEUTRAL], None, E.NEUTRAL)
     assert nxt("llm_start", None, E.SAD, E.SAD) == ([], E.SAD, E.SAD)
+    assert nxt("llm_start", None, E.THINK, E.THINK) == ([], E.THINK, E.THINK)
 
 
 def test_late_state_after_think_switches_to_the_detected_emotion():

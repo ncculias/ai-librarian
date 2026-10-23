@@ -100,3 +100,15 @@ def test_shutdown_stream_waits_for_in_flight_anext():
         assert in_flight.cancelled()
 
     asyncio.run(run())
+
+
+def test_think_turn_emotion_is_sent_exactly_once(monkeypatch):
+    items = [
+        (0, _msg("detect_emotion", '{"emotion":"think"}')),
+        (0, _msg("invoke_llm", "我們")),
+        (0, _msg("invoke_llm", "一起")),
+        (0, _msg("invoke_llm", "想想")),
+        (0, ("values", {"emotion": Emotion.THINK})),
+    ]
+    emotions = [e for e in _events(items, monkeypatch) if e.startswith("emotion:")]
+    assert emotions == ["emotion:think"]

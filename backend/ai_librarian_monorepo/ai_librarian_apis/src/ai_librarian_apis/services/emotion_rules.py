@@ -35,6 +35,8 @@ def next_emotion_events(
     # llm_start: the reply text begins, so leave "think" and go back to the turn's emotion.
     if last == Emotion.THINK:
         back = turn or Emotion.NEUTRAL
+        if back == last:
+            return [], turn, last
         return [back], turn, back
     return [], turn, last
 

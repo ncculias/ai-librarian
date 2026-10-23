@@ -29,6 +29,8 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 # How long to hold the reply back, at most, while waiting for the emotion classifier.
 EMOTION_HOLD_SECONDS = 2.5
+# Upper bound on waiting for a cancelled in-flight chunk during cleanup.
+_SHUTDOWN_WAIT_SECONDS = 5.0
 
 react_router = APIRouter(prefix="/react", tags=["ReAct Agent"])
 react_emotion_router = APIRouter(prefix="/react", tags=["ReAct Agent With Emotion"])
@@ -170,15 +172,15 @@ async def _shutdown_stream(iterator: Any, next_item: "asyncio.Future | None") ->
         if not next_item.done():
             next_item.cancel()
             # Wait until the cancelled call has really finished; closing a running generator raises.
-            await asyncio.wait({next_item})
-        if not next_item.cancelled():
+            await asyncio.wait({next_item}, timeout=_SHUTDOWN_WAIT_SECONDS)
+        if next_item.done() and not next_item.cancelled():
             next_item.exception()  # mark retrieved
     aclose = getattr(iterator, "aclose", None)
     if aclose is not None:
         try:
             await aclose()
         except Exception:  # noqa: BLE001 - cleanup must never raise
-            logger.debug("Closing the emotion stream failed.", exc_info=True)
+            logger.warning("Closing the emotion stream failed.", exc_info=True)
 
 
 @react_router.post(
