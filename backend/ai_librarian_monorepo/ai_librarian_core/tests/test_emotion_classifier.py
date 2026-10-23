@@ -11,25 +11,7 @@ from ai_librarian_core.agents.react.emotion_classifier import (
 from ai_librarian_core.agents.react.state import Emotion
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-
-class _Structured:
-    def __init__(self, result):
-        self.result = result
-        self.calls = 0
-
-    async def ainvoke(self, _prompt):
-        self.calls += 1
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
-
-
-class _FakeLLM:
-    def __init__(self, result):
-        self.structured = _Structured(result)
-
-    def with_structured_output(self, _schema):
-        return self.structured
+from tests.fakes import FakeLLM
 
 
 def test_latest_user_text_takes_last_human_message_only():
@@ -75,14 +57,14 @@ def test_emotion_enum_has_no_anger_and_has_think():
 
 def test_classify_emotion_returns_model_label():
     assert (
-        asyncio.run(classify_emotion(_FakeLLM(EmotionOutput(emotion=Emotion.THINK)), "我在想要不要讀")) == Emotion.THINK
+        asyncio.run(classify_emotion(FakeLLM(EmotionOutput(emotion=Emotion.THINK)), "我在想要不要讀")) == Emotion.THINK
     )
-    assert asyncio.run(classify_emotion(_FakeLLM({"emotion": "sad"}), "心情很差")) == Emotion.SAD
+    assert asyncio.run(classify_emotion(FakeLLM({"emotion": "sad"}), "心情很差")) == Emotion.SAD
 
 
 def test_classify_emotion_falls_back_to_neutral_and_skips_empty():
-    assert asyncio.run(classify_emotion(_FakeLLM(RuntimeError("boom")), "q")) == Emotion.NEUTRAL
-    assert asyncio.run(classify_emotion(_FakeLLM({"emotion": "ecstatic"}), "q")) == Emotion.NEUTRAL
-    llm = _FakeLLM({"emotion": "happy"})
+    assert asyncio.run(classify_emotion(FakeLLM(RuntimeError("boom")), "q")) == Emotion.NEUTRAL
+    assert asyncio.run(classify_emotion(FakeLLM({"emotion": "ecstatic"}), "q")) == Emotion.NEUTRAL
+    llm = FakeLLM({"emotion": "happy"})
     assert asyncio.run(classify_emotion(llm, "   ")) == Emotion.NEUTRAL
     assert llm.structured.calls == 0

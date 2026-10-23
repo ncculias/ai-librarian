@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -18,6 +19,8 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,7 +62,12 @@ class AsyncReactEmotionAgent(BaseReactAgent):
 
     async def _detect_emotion(self, state: MessagesEmotionState) -> dict[str, Emotion]:
         # Runs in parallel with the reply and only looks at the user's latest message.
-        return {"emotion": await classify_emotion(self._emotion_llm, latest_user_text(state.messages))}
+        try:
+            llm = self._emotion_llm
+        except Exception:  # noqa: BLE001 - a classifier misconfiguration must never fail the reply
+            logger.warning("Emotion classifier model could not be initialised; using neutral.", exc_info=True)
+            return {"emotion": Emotion.NEUTRAL}
+        return {"emotion": await classify_emotion(llm, latest_user_text(state.messages))}
 
     async def _route(self, state: MessagesEmotionState) -> Literal["tools", "__end__"]:
         messages = state.messages
