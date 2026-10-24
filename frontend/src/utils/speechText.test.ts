@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SPEECH_CHUNK_MAX, splitForSpeech, stripMarkdownForSpeech } from "./speechText.ts";
+import { SPEECH_CHUNK_MAX, SPEECH_PREFETCH_AHEAD, splitForSpeech, stripMarkdownForSpeech } from "./speechText.ts";
 
 test("stripMarkdownForSpeech 拿掉粗體、標題、條列、連結與網址", () => {
   const md =
@@ -27,6 +27,7 @@ test("splitForSpeech 超長句依逗號再切", () => {
 
 test("splitForSpeech 空白輸入回空陣列；預設上限為常數", () => {
   assert.deepEqual(splitForSpeech("  \n\n "), []);
+  assert.ok(Number.isInteger(SPEECH_PREFETCH_AHEAD) && SPEECH_PREFETCH_AHEAD >= 1);
   const many = Array.from({ length: 40 }, (_, i) => `這是第${i}句。`).join("");
   for (const c of splitForSpeech(many)) assert.ok(c.length <= SPEECH_CHUNK_MAX);
 });

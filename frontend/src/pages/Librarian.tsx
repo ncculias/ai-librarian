@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 
 import { mcpTools, type Tool } from "../data/mcpTools";
 import { exportChat } from "../utils/exportChat";
-import { splitForSpeech, stripMarkdownForSpeech } from "../utils/speechText";
+import { SPEECH_PREFETCH_AHEAD, splitForSpeech, stripMarkdownForSpeech } from "../utils/speechText";
 import {
   Clock,
   FlaskConical,
@@ -451,6 +451,12 @@ export default function Librarian({ page }: { page: ChatPage }) {
     const pending: Array<Promise<string> | undefined> = [];
     const getChunkUrl = (i: number) =>
       (pending[i] ??= fetchSpeechChunk(index, i, chunks[i], ttsController.signal));
+    // 讓「正在播的那段」之後最多 SPEECH_PREFETCH_AHEAD 段同時在合成，段與段之間才不會有空檔
+    const prefetchAhead = (from: number) => {
+      for (let k = from; k < Math.min(chunks.length, from + SPEECH_PREFETCH_AHEAD); k++) {
+        void getChunkUrl(k).catch(() => {});
+      }
+    };
 
     let source: MouthSource | null = null;
     const finish = () => {
@@ -461,10 +467,11 @@ export default function Librarian({ page }: { page: ChatPage }) {
 
     try {
       const audio = (audioRef.current ??= new Audio());
+      prefetchAhead(1); // 第一段還在等的時候，後面幾段就先開始合成
       for (let i = 0; i < chunks.length; i++) {
         const url = await getChunkUrl(i);
         if (!active()) return;
-        if (i + 1 < chunks.length) void getChunkUrl(i + 1).catch(() => {}); // 預先抓下一段
+        prefetchAhead(i + 1);
 
         audio.src = url;
         audio.playbackRate = storyPaceRate[storyPace] ?? 1;
