@@ -1,4 +1,5 @@
 import HomeHero from "./components/home/HomeHero";
+import HomeStage from "./components/home/HomeStage";
 import "./components/home/home.css";
 import { useTheme } from "./theme";
 
@@ -28,7 +29,8 @@ export default function Home() {
       </div>
 
       <HomeHero />
-      {/* Task 4、5 的區塊接在這裡 */}
+      <HomeStage />
+      {/* Task 5 的區塊接在這裡 */}
     </div>
   );
 }

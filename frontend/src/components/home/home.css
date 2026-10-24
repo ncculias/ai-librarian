@@ -193,6 +193,129 @@
   }
 }
 
+/* ───── 第二段：顏如玉釘住，三個標註依序出現 ───── */
+.hs-stage-wrap {
+  position: relative;
+  height: 320vh;
+}
+.hs-stage {
+  position: sticky;
+  top: 3.5rem;
+  height: calc(100vh - 3.5rem);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.hs-stage img {
+  height: 80vh;
+  width: auto;
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  filter: drop-shadow(
+    0 30px 40px color-mix(in srgb, var(--color-text-primary) 22%, transparent)
+  );
+}
+
+.hs-call {
+  position: absolute;
+  width: 300px;
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.6s,
+    transform 0.6s;
+}
+.hs-call.is-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+.hs-call.c1 {
+  left: 8vw;
+  top: 22vh;
+}
+.hs-call.c2 {
+  right: 8vw;
+  top: 34vh;
+  text-align: right;
+}
+.hs-call.c3 {
+  left: 10vw;
+  bottom: 16vh;
+}
+
+.hs-mark {
+  display: flex;
+  align-items: center;
+}
+.hs-call.c2 .hs-mark {
+  flex-direction: row-reverse;
+}
+.hs-dot {
+  flex: none;
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-bg-card);
+  border: 5px solid var(--color-accent-strong);
+  box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-accent-strong) 18%, transparent);
+}
+.hs-ln {
+  display: block;
+  width: 120px;
+  height: 2px;
+  margin: 0 6px;
+  background: var(--color-accent-strong);
+}
+.hs-call h3 {
+  margin: 8px 0 4px;
+  font-size: 40px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-primary);
+}
+.hs-call p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.hs-go {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent-strong);
+}
+
+/* 右下角的描邊大數字，目前步驟實心 */
+.hs-counter {
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  font-size: 72px;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+}
+.hs-counter b {
+  color: var(--color-text-primary);
+  -webkit-text-stroke: 0;
+}
+
+/* 人物圖載入失敗：三個標註改成三欄置中 */
+.hs-stage.no-portrait {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  align-items: start;
+  align-content: center;
+  padding: 0 6vw;
+}
+.hs-stage.no-portrait .hs-call {
+  position: static;
+  width: auto;
+  text-align: left;
+}
+.hs-stage.no-portrait .hs-call.c2 .hs-mark {
+  flex-direction: row;
+}
+
 /* ───── 手機 ───── */
 @media (max-width: 767px) {
   .hs-line {
@@ -220,6 +343,38 @@
     position: static;
     margin-top: 12px;
     max-width: none;
+  }
+  /* 第二段：手機不釘住，人物在上、標註上下排，進入視窗時一起浮現 */
+  .hs-stage-wrap {
+    height: auto;
+  }
+  .hs-stage,
+  .hs-stage.no-portrait {
+    position: static;
+    height: auto;
+    display: block;
+    padding: 8vh 6vw;
+  }
+  .hs-stage img {
+    display: block;
+    height: 46vh;
+    margin: 0 auto;
+  }
+  .hs-call,
+  .hs-call.c1,
+  .hs-call.c2,
+  .hs-call.c3,
+  .hs-stage.no-portrait .hs-call {
+    position: static;
+    width: auto;
+    text-align: left;
+    margin: 16px 0;
+  }
+  .hs-call.c2 .hs-mark {
+    flex-direction: row;
+  }
+  .hs-counter {
+    display: none;
   }
 }
 
