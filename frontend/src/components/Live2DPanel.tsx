@@ -7,7 +7,7 @@ import {
   shouldApply,
 } from "./live2d/yanruyu";
 import type { YanruyuEmotion } from "./live2d/yanruyu";
-import { computePlacement } from "./live2d/display";
+import { computePlacement, halfBodyFractionFor } from "./live2d/display";
 import type { CharacterView } from "./live2d/display";
 import { MOUTH_REST_EPSILON, smoothMouth } from "./live2d/lipsync";
 import type { MouthSource } from "./live2d/lipsync";
@@ -70,8 +70,9 @@ const DEFAULT_PONCHO_POSE: PonchoPose = {
 
 type DrawnBounds = { minX: number; minY: number; maxX: number; maxY: number };
 
-// 顏如玉：取得模型實際繪製內容的邊界（模型本地像素座標，與 model.width/height 同一空間）。
-// 該模型的 Live2D 畫布矩形與繪製內容不符，用畫布矩形置中會偏小且被裁切。
+// 取得模型實際繪製內容的邊界（模型本地像素座標，與 model.width/height 同一空間）。
+// 有些模型（如顏如玉）的 Live2D 畫布矩形與繪製內容不符，用畫布矩形置中會偏小且被裁切；
+// 所有角色都用這個邊界定位，全身／半身切換才對每一隻都有效。
 // 頂點座標用引擎自己的換算（getDrawableVertices：x*PPU + W/2、-y*PPU + H/2），
 // 確保與實際繪製位置一致；再乘上 internalModel.localTransform 對齊 model 本地空間。
 // 無法計算（API 缺漏、沒有可見 drawable）時回傳 null。
@@ -237,14 +238,12 @@ export default function Live2DPanel({
         forcePriorityRef.current = MotionPriority.FORCE;
         applyEmotion(model, latestEmotionRef.current);
 
-        // 顏如玉：以實際繪製邊界取代畫布矩形來定位；算不出來就退回畫布矩形並警告一次
-        let yanruyuBounds: DrawnBounds | null = null;
-        if (isYanruyuUrl(abs)) {
-          yanruyuBounds = computeDrawnBounds(model.internalModel);
-          if (!yanruyuBounds) {
-            console.warn("[Live2DPanel] 無法計算顏如玉繪製邊界，退回畫布矩形定位");
-          }
+        // 所有角色：以實際繪製邊界取代畫布矩形來定位（全身／半身才對每一隻都有效）；算不出來就退回畫布矩形並警告一次
+        const drawnBounds: DrawnBounds | null = computeDrawnBounds(model.internalModel);
+        if (!drawnBounds) {
+          console.warn("[Live2DPanel] 無法計算繪製邊界，退回畫布矩形定位:", abs);
         }
+        const halfFraction = halfBodyFractionFor(abs);
 
         // 將模型加入舞台（先隱藏：載入初期 width/height 還沒就緒，
         // 直接定位會算出爆炸大的縮放、畫面只剩鞋子；等尺寸可信再亮相）
@@ -265,15 +264,15 @@ export default function Live2DPanel({
           // 模型尺寸未就緒（載入中）就先不定位、保持隱藏，等下一幀再試
           if (!(baseW > 10 && baseH > 10)) return;
 
-          if (!yanruyuBounds) {
+          if (!drawnBounds) {
             const hasAnchor = (model as any)?.anchor?.set;
             if (hasAnchor) model.anchor.set(0.5, 1);
             else model.pivot?.set?.(baseW / 2, baseH);
           }
 
-          if (yanruyuBounds) {
-            // 顏如玉：依實際繪製內容的邊界定位（左上角為原點）；全身/半身的縮放與位移由 computePlacement 算
-            const p = computePlacement(yanruyuBounds, w, h, characterViewRef.current);
+          if (drawnBounds) {
+            // 依實際繪製內容的邊界定位（左上角為原點）；全身/半身的縮放與位移由 computePlacement 算
+            const p = computePlacement(drawnBounds, w, h, characterViewRef.current, halfFraction);
             model.anchor?.set?.(0, 0);
             model.pivot?.set?.(0, 0);
             model.scale.set(p.scale);

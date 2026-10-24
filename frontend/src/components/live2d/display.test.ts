@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   HALF_BODY_FRACTION,
   computePlacement,
+  halfBodyFractionFor,
   parseCharacterView,
   parseLayoutMode,
 } from "./display.ts";
@@ -44,4 +45,15 @@ test("computePlacement 極小容器仍回正數 scale", () => {
     assert.ok(p.scale > 0);
     assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
   }
+});
+
+test("computePlacement half 可帶各角色的半身比例;halfBodyFractionFor 粟粟 0.55、其他用預設", () => {
+  const b = { minX: 0, minY: 0, maxX: 100, maxY: 1000 };
+  const d = computePlacement(b, 400, 500, "half");
+  const p = computePlacement(b, 400, 500, "half", 0.5);
+  // 比例越小 → 要容納的高度越少 → 放大倍率越大
+  assert.ok(p.scale > d.scale);
+  assert.equal(p.scale, Math.min((400 * 0.9) / 100, (500 * 0.95) / (1000 * 0.5)));
+  assert.equal(halfBodyFractionFor("/poncho/poncho.model3.json"), 0.55);
+  assert.equal(halfBodyFractionFor("/yanruyu/yanruyu.model3.json"), HALF_BODY_FRACTION);
 });
