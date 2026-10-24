@@ -3,6 +3,7 @@
 
 export const YANRUYU_PATH = "/yanruyu/";
 export const YANRUYU_MODEL_URL = "/yanruyu/yanruyu.model3.json";
+export const YANRUYU_PORTRAIT_URL = "/yanruyu/portrait.png"; // 首頁靜態迎賓圖（廠商 PNG 縮圖，與模型同目錄、rsync 部署）
 // 動作播放速度倍率(1 = 廠商原速)。廠商動作節奏偏慢,依使用者回饋加速;只影響顏如玉。
 export const YANRUYU_MOTION_SPEED = 1;
 // 切換情緒時,動作先起、表情(臉/嘴/手臂的部件切換)延後這麼多毫秒再換,
