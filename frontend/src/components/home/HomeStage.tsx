@@ -77,12 +77,7 @@ export default function HomeStage() {
           />
         )}
 
-        {/* 標註 1、3 同在左欄，放進同一個欄容器，字級放大時才不會互相重疊；2 在右側獨立 */}
-        <div className="hs-call-col">
-          {renderCall(HOME_ENTRIES[0], 0)}
-          {renderCall(HOME_ENTRIES[2], 2)}
-        </div>
-        {renderCall(HOME_ENTRIES[1], 1)}
+        {HOME_ENTRIES.map(renderCall)}
 
         <div className="hs-counter hs-serif" aria-hidden="true">
           <b>0{Math.max(1, step)}</b>/03

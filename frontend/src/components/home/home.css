@@ -208,10 +208,23 @@
   height: calc(100vh - 3.5rem);
   height: calc(100svh - 3.5rem);
   overflow: hidden;
+  /* 釘住版型：左欄放標註 1、3（分在上下兩列，字級再大也不會重疊），中間人物，右欄標註 2（跨兩列） */
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 26vw) minmax(0, 1fr) minmax(0, 26vw);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "c1 fig c2"
+    "c3 fig c2";
+  column-gap: 2vw;
+  row-gap: 24px;
+  align-items: start;
+  padding: 22vh 8vw 16vh;
 }
 .hs-stage img {
+  grid-area: fig;
+  place-self: center;
+  /* 人物 80vh 比中間區域高；負邊距讓它不撐開格線，視覺上仍置中於整個舞台 */
+  margin: -26vh 0 -20vh;
   height: 80vh;
   width: auto;
   max-width: 40vw;
@@ -223,8 +236,8 @@
 }
 
 .hs-call {
-  position: absolute;
-  width: min(300px, 26vw);
+  width: 100%;
+  max-width: 300px;
   opacity: 0;
   transform: translateY(24px);
   pointer-events: none;
@@ -238,29 +251,20 @@
   opacity: 1;
   transform: translateY(0);
 }
-/* 標註 1、3 共用的左欄：上下兩端對齊，字級放大時兩者仍留在同一欄內不會重疊 */
-.hs-call-col {
-  position: absolute;
-  left: 8vw;
-  top: 22vh;
-  bottom: 16vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 24px;
-  width: min(300px, 26vw);
-  pointer-events: none;
-}
-.hs-call-col .hs-call {
-  position: static;
-  width: auto;
+.hs-call.c1 {
+  grid-area: c1;
 }
 .hs-call.c2 {
-  right: 8vw;
+  grid-area: c2;
+  justify-self: end;
   /* 比原型再低一點，步驟 3 人物右移時，手上的書不會蓋到第一行字 */
-  top: 40vh;
-  width: min(300px, 22vw);
+  margin-top: 18vh;
+  max-width: min(300px, 22vw);
   text-align: right;
+}
+.hs-call.c3 {
+  grid-area: c3;
+  align-self: end;
 }
 
 .hs-mark {
@@ -329,29 +333,22 @@
   height: 200vh;
 }
 .hs-stage.no-portrait {
+  grid-template-areas: none;
+  grid-template-rows: none;
   grid-template-columns: repeat(3, 1fr);
   gap: 32px;
   align-items: start;
   align-content: center;
   padding: 0 6vw;
 }
-/* 欄容器不參與排版，三個標註直接當三欄的格子；DOM 順序是 1、3、2，用 order 還原 */
-.hs-stage.no-portrait .hs-call-col {
-  display: contents;
-}
 .hs-stage.no-portrait .hs-call {
-  position: static;
+  grid-area: auto;
+  align-self: auto;
+  justify-self: auto;
   width: auto;
+  max-width: none;
+  margin-top: 0;
   text-align: left;
-}
-.hs-stage.no-portrait .hs-call.c1 {
-  order: 1;
-}
-.hs-stage.no-portrait .hs-call.c2 {
-  order: 2;
-}
-.hs-stage.no-portrait .hs-call.c3 {
-  order: 3;
 }
 .hs-stage.no-portrait .hs-call.c2 .hs-mark {
   flex-direction: row;
@@ -707,26 +704,11 @@
   .hs-stage.no-portrait {
     position: static;
     height: auto;
-    /* 用直向 flex 才能靠 order 還原 1、2、3 的順序（DOM 為 1、3、2） */
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    /* 清掉桌機 grid 的對齊設定，否則標註會被縮寬置中 */
+    display: block;
+    /* 新版 Chrome 的 block 容器也吃 place-items／align-content，要清掉否則標註會被縮寬置中 */
     place-items: normal;
     align-content: normal;
     padding: 8vh 6vw;
-  }
-  .hs-call-col {
-    display: contents;
-  }
-  .hs-call.c1 {
-    order: 1;
-  }
-  .hs-call.c2 {
-    order: 2;
-  }
-  .hs-call.c3 {
-    order: 3;
   }
   .hs-stage img {
     display: block;
@@ -741,8 +723,12 @@
   .hs-stage.no-portrait .hs-call {
     position: static;
     width: auto;
+    max-width: none;
+    /* 新版 Chrome 的 block 項目也吃 justify-self／align-self，要清掉否則 c2 會被推到右邊 */
+    justify-self: auto;
+    align-self: auto;
     text-align: left;
-    margin: 0;
+    margin: 16px 0;
   }
   .hs-call.c2 .hs-mark {
     flex-direction: row;
