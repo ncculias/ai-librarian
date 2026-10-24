@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Live2DPanel from "./Live2DPanel";
+import {
+  checkYanruyuSupport,
+  isYanruyuUrl,
+  readYanruyuEnv,
+} from "./live2d/yanruyu";
+import type { MouthSource } from "./live2d/lipsync";
+import {
+  DEFAULT_CHARACTER_VIEW,
+  DEFAULT_LAYOUT_MODE,
+  type CharacterView,
+  type LayoutMode,
+} from "./live2d/display";
 
 type Live2DInfo = {
   name: string;
@@ -12,16 +24,39 @@ type Props = {
   setModelUrl: (url: string) => void;
   emotionToken: string | null;
   paused?: boolean;
+  motionSpeed?: number; // 動作速度倍率,轉交給 Live2DPanel
+  characterView?: CharacterView; // 人物顯示:全身 / 半身,轉交給 Live2DPanel
+  layout?: LayoutMode; // 版面:左右並排 / 上下(人物在後)
+  mouthSource?: MouthSource | null; // 朗讀口型音源,轉交給 Live2DPanel(不進 key,不會重建模型)
 };
+
+// 從候選清單挑第一個 .model3.json;沒有就退而求其次
+function pickModelUrl(usable: Live2DInfo[], all: Live2DInfo[]): string {
+  const first = usable.find((m) => m.url.endsWith(".model3.json"));
+  return first?.url ?? usable[0]?.url ?? all[0]?.url ?? "";
+}
 
 export default function Live2DArea({
   modelUrl,
   setModelUrl,
   emotionToken,
   paused = false,
+  motionSpeed = 1,
+  characterView = DEFAULT_CHARACTER_VIEW,
+  layout = DEFAULT_LAYOUT_MODE,
+  mouthSource = null,
 }: Props) {
+  const isStacked = layout === "stacked";
   const [_models, _setModels] = useState<Live2DInfo[]>([]);
+  const [yanruyuSupport, setYanruyuSupport] = useState<
+    ReturnType<typeof checkYanruyuSupport>
+  >({ ok: true });
   const [resizeKey, setResizeKey] = useState(0);
+  // 已處理過載入失敗的 url(每個 url 只反應一次,避免退回後再失敗而無限循環)
+  const failedUrlsRef = useRef<Set<string>>(new Set());
+  // 載入清單時要讀「當下」的 modelUrl(換頁回來時沿用上次選的角色),但不讓 effect 因它重跑
+  const modelUrlRef = useRef(modelUrl);
+  modelUrlRef.current = modelUrl;
 
   const rebuildPanel = useCallback(() => {
     setResizeKey((k) => k + 1);
@@ -41,6 +76,21 @@ export default function Live2DArea({
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
   }, [rebuildPanel]);
+
+  // 顏如玉模型檔載入失敗(缺檔等):停用顏如玉並退回第一個非顏如玉的模型
+  const handleLoadError = useCallback(
+    (url: string) => {
+      if (failedUrlsRef.current.has(url)) return;
+      failedUrlsRef.current.add(url);
+      if (!isYanruyuUrl(url)) return;
+      const reason = "模型檔缺失";
+      setYanruyuSupport({ ok: false, reason });
+      console.warn("[Live2D] 顏如玉已停用:", reason);
+      const usable = _models.filter((m) => !isYanruyuUrl(m.url));
+      setModelUrl(pickModelUrl(usable, _models));
+    },
+    [_models, setModelUrl],
+  );
 
   // 註：以前 A+/A- 會改變整體版面，所以要監聽 font-size-change 重建面板；
   // 現在字級縮放只影響文字、不動版面（index.css 的 html 基準已固定），不需要重建，
@@ -67,8 +117,20 @@ export default function Live2DArea({
 
         _setModels(normalized);
 
-        const first = normalized.find((m) => m.url.endsWith(".model3.json"));
-        setModelUrl(first?.url ?? normalized[0]?.url ?? "");
+        const support = checkYanruyuSupport(readYanruyuEnv());
+        setYanruyuSupport(support);
+        if (!support.ok) {
+          console.warn("[Live2D] 顏如玉已停用:", support.reason);
+        }
+
+        const usable = support.ok
+          ? normalized
+          : normalized.filter((m) => !isYanruyuUrl(m.url));
+        // 已有合法的起始角色(換頁保留下來的)就沿用;空值或不在可用清單才自動挑
+        const current = modelUrlRef.current;
+        if (!current || !usable.some((m) => m.url === current)) {
+          setModelUrl(pickModelUrl(usable, normalized));
+        }
       })
       .catch((err) => {
         console.error("Load Live2D manifest failed:", err);
@@ -77,7 +139,13 @@ export default function Live2DArea({
   }, [setModelUrl]);
 
   return (
-    <section className="card p-6 md:col-span-1 h-[80vh] relative">
+    <section
+      className={
+        isStacked
+          ? "card p-6 relative layout-stacked-stage"
+          : "card p-6 md:col-span-1 h-[calc(100vh-6rem)] relative"
+      }
+    >
       <div className="theme-live2d-stage absolute inset-0 z-0 rounded-xl border border-dashed">
         {modelUrl && (
           <Live2DPanel
@@ -86,6 +154,10 @@ export default function Live2DArea({
             className="w-full h-full"
             emotionToken={emotionToken ?? undefined}
             paused={paused}
+            motionSpeed={motionSpeed}
+            characterView={characterView}
+            mouthSource={mouthSource}
+            onLoadError={handleLoadError}
           />
         )}
       </div>
@@ -96,15 +168,22 @@ export default function Live2DArea({
           onChange={(e) => setModelUrl(e.target.value)}
           className="theme-input rounded-md px-2 py-1 text-[11px]"
         >
-          {_models.map((m) => (
-            <option key={m.url} value={m.url}>
-              {m.name}
-            </option>
-          ))}
+          {_models.map((m) => {
+            const unsupported = !yanruyuSupport.ok && isYanruyuUrl(m.url);
+            return (
+              <option key={m.url} value={m.url} disabled={unsupported}>
+                {unsupported ? `${m.name}(此裝置不支援)` : m.name}
+              </option>
+            );
+          })}
         </select>
       </div>
 
-      <div className="absolute bottom-2 right-2 z-10">
+      <div
+        className={`absolute z-10 ${
+          isStacked ? "top-2 left-2" : "bottom-2 right-2"
+        }`}
+      >
         <div className="theme-emotion-pill flex items-center gap-2 rounded-md px-2 py-1 text-[10px] backdrop-blur">
           <span className="text-[var(--color-text-secondary)]">emotion</span>
           <span className="font-mono text-[var(--color-accent-text)]">

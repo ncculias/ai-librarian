@@ -26,13 +26,20 @@ export default function App() {
         className={
           isHome
             ? "relative z-10"
-            : "relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+            : "relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8"
         }
       >
         <Routes>
           <Route path="/" element={<Home />} />
 
-          <Route path="/librarian" element={<Librarian />} />
+          <Route
+            path="/librarian"
+            element={<Librarian key="general" page="general" />}
+          />
+          <Route
+            path="/book-guide"
+            element={<Librarian key="book-guide" page="book-guide" />}
+          />
           <Route path="/picture-book" element={<PictureBook />} />
           <Route path="/my-story-book" element={<MyStoryBook />} />
 

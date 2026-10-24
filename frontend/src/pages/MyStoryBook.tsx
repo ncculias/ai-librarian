@@ -17,6 +17,7 @@ import {
   Download,
 } from "lucide-react";
 import { exportChat } from "../utils/exportChat";
+import Toast from "../components/Toast";
 
 // 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -415,6 +416,8 @@ function BookStep({
   ); // 文字 → 音檔 objectURL（存於工作階段，切頁保留）
   const inflightRef = useRef<Map<string, Promise<string>>>(new Map()); // 進行中的請求（去重）
   const [audioState, setAudioState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
+  // 朗讀失敗的提示(取代原本會卡住整頁的 alert)
+  const [toast, setToast] = useState<string | null>(null);
   const [progress, setProgress] = useState({ t: 0, d: 0 }); // 播放進度（秒）/ 總長
   // 語速與「連續唸」跨頁共用，並記住上次的選擇
   const RATE_STEPS = [1, 1.25, 1.5, 0.75];
@@ -539,7 +542,7 @@ function BookStep({
     console.error(err);
     stopAudio();
     const msg = err instanceof Error ? err.message : "未知錯誤";
-    alert("朗讀失敗了：" + msg);
+    setToast("朗讀失敗了：" + msg);
   };
 
   const onPlayPause = () => {
@@ -777,7 +780,7 @@ function BookStep({
       })
       .catch((e) => {
         setChatSpeakingIdx(null);
-        alert("朗讀失敗了：" + (e instanceof Error ? e.message : "未知錯誤"));
+        setToast("朗讀失敗了：" + (e instanceof Error ? e.message : "未知錯誤"));
       });
   };
 
@@ -831,6 +834,9 @@ function BookStep({
 
   return (
     <div className="flex flex-col items-center gap-4">
+      {toast && (
+        <Toast variant="error" message={toast} onDone={() => setToast(null)} />
+      )}
       <div className="msb-book card" key={cur}>
         {screen.type === "cover" && (
           <div className="msb-cover">

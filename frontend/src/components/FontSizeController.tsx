@@ -9,7 +9,7 @@ export default function FontSizeController({
   variant = "floating",
   className = "",
 }: Props) {
-  const [fontSize, setFontSize] = useState(20);
+  const [fontSize, setFontSize] = useState(16);
 
   // 初始化讀取 localStorage
 

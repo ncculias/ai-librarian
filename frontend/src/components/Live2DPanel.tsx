@@ -1,12 +1,27 @@
 import { useEffect, useRef } from "react";
 import * as PIXI from "pixi.js";
+import {
+  YANRUYU_EXPRESSION_DELAY_MS,
+  isYanruyuUrl,
+  mapEmotion,
+  shouldApply,
+} from "./live2d/yanruyu";
+import type { YanruyuEmotion } from "./live2d/yanruyu";
+import { computePlacement } from "./live2d/display";
+import type { CharacterView } from "./live2d/display";
+import { MOUTH_REST_EPSILON, smoothMouth } from "./live2d/lipsync";
+import type { MouthSource } from "./live2d/lipsync";
 
 // Live2DPanel 輸入參數
 type Props = {
   modelUrl: string; // Live2D 模型 JSON 路徑
+  motionSpeed?: number; // 動作速度倍率(1 = 原速);目前只套用在顏如玉
+  characterView?: CharacterView; // 人物顯示:全身 / 半身(預設 full)
+  mouthSource?: MouthSource | null; // 朗讀口型音源(每幀取開合度);目前只套用在顏如玉,null = 閉嘴
   className?: string;
   emotionToken?: string | null; // 用於觸發對應的表情動作
   paused?: boolean; // true 時暫停渲染（例如設定視窗開啟時，省 GPU 避免拖慢前景）
+  onLoadError?: (url: string, err: unknown) => void; // 模型載入失敗時通知上層（供退回其他角色）
 };
 
 type PonchoPose = {
@@ -53,11 +68,58 @@ const DEFAULT_PONCHO_POSE: PonchoPose = {
   rPalmX: 0,
 };
 
+type DrawnBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+// 顏如玉：取得模型實際繪製內容的邊界（模型本地像素座標，與 model.width/height 同一空間）。
+// 該模型的 Live2D 畫布矩形與繪製內容不符，用畫布矩形置中會偏小且被裁切。
+// 頂點座標用引擎自己的換算（getDrawableVertices：x*PPU + W/2、-y*PPU + H/2），
+// 確保與實際繪製位置一致；再乘上 internalModel.localTransform 對齊 model 本地空間。
+// 無法計算（API 缺漏、沒有可見 drawable）時回傳 null。
+function computeDrawnBounds(internalModel: any): DrawnBounds | null {
+  try {
+    const core = internalModel?.coreModel;
+    const count: number = core?.getDrawableCount?.() ?? 0;
+    if (!count || typeof internalModel.getDrawableVertices !== "function") {
+      return null;
+    }
+    core.update?.(); // 確保頂點位置為目前參數下的結果
+    const lt = internalModel.localTransform;
+    const a = lt?.a ?? 1;
+    const d = lt?.d ?? 1;
+    const tx = lt?.tx ?? 0;
+    const ty = lt?.ty ?? 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < count; i++) {
+      if (!(core.getDrawableOpacity(i) > 0)) continue; // 隱藏的 drawable 不算
+      const v: ArrayLike<number> = internalModel.getDrawableVertices(i);
+      for (let k = 0; k + 1 < v.length; k += 2) {
+        const x = v[k] * a + tx;
+        const y = v[k + 1] * d + ty;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!(maxX > minX && maxY > minY)) return null;
+    return { minX, minY, maxX, maxY };
+  } catch (_) {
+    return null;
+  }
+}
+
 export default function Live2DPanel({
   modelUrl,
   className,
   emotionToken,
   paused = false,
+  motionSpeed = 1,
+  characterView = "full",
+  mouthSource = null,
+  onLoadError,
 }: Props) {
   // 外層容器參考（用於監聽尺寸）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,6 +131,27 @@ export default function Live2DPanel({
   const ponchoPoseTargetRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoPoseCurrentRef = useRef<PonchoPose>({ ...DEFAULT_PONCHO_POSE });
   const ponchoEmotionRef = useRef<string>("neutral");
+  // 顏如玉目前已套用的情緒（模型重建時歸零，才能在載入後重套）
+  const yanruyuEmotionRef = useRef<YanruyuEmotion | null>(null);
+  // 最新的情緒 token（供模型載入完成後補套用，避免重建後情緒遺失）
+  const latestEmotionRef = useRef(emotionToken);
+  // MotionPriority.FORCE（動態載入引擎後才取得；3 為其預設值）
+  const forcePriorityRef = useRef<number>(3);
+  latestEmotionRef.current = emotionToken;
+  // 動作速度倍率也走 ref:設定視窗改值後 tick 立即讀到新值,不觸發模型重建
+  const motionSpeedRef = useRef(motionSpeed);
+  motionSpeedRef.current = motionSpeed;
+  // 人物顯示(全身/半身)同樣走 ref:切換時只重新 fit,不重建模型
+  const characterViewRef = useRef(characterView);
+  characterViewRef.current = characterView;
+  // 口型音源同樣走 ref:朗讀開始/結束只換音源,不重建 PIXI app 與模型
+  const mouthSourceRef = useRef(mouthSource);
+  mouthSourceRef.current = mouthSource;
+  // 目前模型的 fit 函式(模型載入後才有值),供 characterView 變更時重新定位
+  const fitRef = useRef<(() => void) | null>(null);
+  // 以 ref 持有最新回呼，避免 effect 因回呼身分改變而重建模型
+  const onLoadErrorRef = useRef(onLoadError);
+  onLoadErrorRef.current = onLoadError;
 
   // 設定視窗等遮罩開啟時暫停動畫：背景 60fps 渲染會與前景 UI 搶資源
   useEffect(() => {
@@ -77,6 +160,11 @@ export default function Live2DPanel({
     if (paused) app.ticker.stop();
     else app.ticker.start();
   }, [paused]);
+
+  // 人物顯示切換:只重新 fit(套用新的縮放/位移),不動 PIXI app 與模型
+  useEffect(() => {
+    fitRef.current?.();
+  }, [characterView]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -89,6 +177,10 @@ export default function Live2DPanel({
     let tickFn: ((dt: number) => void) | null = null;
     let destroyed = false;
 
+    // 模型將重新建立，舊模型與其「已套用情緒」作廢
+    currentModelRef.current = null;
+    yanruyuEmotionRef.current = null;
+
     // async/await：初始化 Pixi + 載入 Live2D
     const mount = async () => {
       try {
@@ -97,7 +189,9 @@ export default function Live2DPanel({
 
         // 動態載入 Live2D 模組
 
-        const { Live2DModel } = await import("pixi-live2d-display/cubism4");
+        const { Live2DModel, MotionPriority } = await import(
+          "pixi-live2d-display/cubism4"
+        );
 
         // 建立 PIXI Application
         app = new PIXI.Application({
@@ -123,10 +217,34 @@ export default function Live2DPanel({
         // 載入模型
         const abs = new URL(modelUrl, window.location.origin).pathname;
         const isPoncho = abs.toLowerCase().includes("/poncho/");
-        model = await Live2DModel.from(abs, { autoUpdate: false });
+        // 顏如玉:預先載入全部動作檔,切換情緒時不用等下載(否則會「表情先換、動作晚到」)
+        const loadOptions: any = { autoUpdate: false };
+        if (isYanruyuUrl(abs)) loadOptions.motionPreload = "ALL";
+        model = await Live2DModel.from(abs, loadOptions);
         currentModelRef.current = model;
 
         if (destroyed) return;
+
+        // 顏如玉：動作本身已含眨眼與呼吸，關掉引擎自帶的避免疊加
+        if (isYanruyuUrl(abs)) {
+          model.internalModel.eyeBlink = undefined;
+          model.internalModel.breath = undefined;
+
+          // 動作循環的銜接改由 model3 的 FadeOutTime=0 處理(見 lib.mjs buildModel3);引擎的 setIsLoop 在 0.4.0 會讓動作凍結,不可使用
+        }
+
+        // 模型載入期間可能已收到情緒，載入完成後補套用
+        forcePriorityRef.current = MotionPriority.FORCE;
+        applyEmotion(model, latestEmotionRef.current);
+
+        // 顏如玉：以實際繪製邊界取代畫布矩形來定位；算不出來就退回畫布矩形並警告一次
+        let yanruyuBounds: DrawnBounds | null = null;
+        if (isYanruyuUrl(abs)) {
+          yanruyuBounds = computeDrawnBounds(model.internalModel);
+          if (!yanruyuBounds) {
+            console.warn("[Live2DPanel] 無法計算顏如玉繪製邊界，退回畫布矩形定位");
+          }
+        }
 
         // 將模型加入舞台（先隱藏：載入初期 width/height 還沒就緒，
         // 直接定位會算出爆炸大的縮放、畫面只剩鞋子；等尺寸可信再亮相）
@@ -147,23 +265,71 @@ export default function Live2DPanel({
           // 模型尺寸未就緒（載入中）就先不定位、保持隱藏，等下一幀再試
           if (!(baseW > 10 && baseH > 10)) return;
 
-          const hasAnchor = (model as any)?.anchor?.set;
-          if (hasAnchor) model.anchor.set(0.5, 1);
-          else model.pivot?.set?.(baseW / 2, baseH);
+          if (!yanruyuBounds) {
+            const hasAnchor = (model as any)?.anchor?.set;
+            if (hasAnchor) model.anchor.set(0.5, 1);
+            else model.pivot?.set?.(baseW / 2, baseH);
+          }
 
-          const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
-          model.scale.set(scale > 0 ? scale : 0.5);
-          model.position.set(w / 2, h * 0.98);
+          if (yanruyuBounds) {
+            // 顏如玉：依實際繪製內容的邊界定位（左上角為原點）；全身/半身的縮放與位移由 computePlacement 算
+            const p = computePlacement(yanruyuBounds, w, h, characterViewRef.current);
+            model.anchor?.set?.(0, 0);
+            model.pivot?.set?.(0, 0);
+            model.scale.set(p.scale);
+            model.position.set(p.x, p.y);
+          } else {
+            const scale = Math.min((w * 0.9) / baseW, (h * 0.95) / baseH);
+            model.scale.set(scale > 0 ? scale : 0.5);
+            model.position.set(w / 2, h * 0.98);
+          }
           if (!revealed) {
             revealed = true;
             model.visible = true;
           }
         };
 
+        fitRef.current = fit;
+
         let elapsedSec = 0;
 
+        // 顏如玉的動作節奏以倍率加速:推進更多的時間 = 動作播得更快(物理已關閉,不會不穩)
+        // 倍率從 ref 讀,設定視窗調整後即時生效、不需重建模型
+        const speedApplies = isYanruyuUrl(abs);
+        const isYanruyu = speedApplies;
+        // 顏如玉嘴巴目前開合度(模型重建即歸零)
+        let mouth = 0;
         tickFn = (dt: number) => {
-          model.update?.(dt);
+          // pixi 的 ticker 給的 dt 是「幀數」(60fps 時約 1),但 Live2DModel.update() 要的是毫秒;
+          // 顏如玉改用 ticker.deltaMS,動作才會以正確速度播放(舊角色維持原行為)
+          const elapsed = speedApplies ? app!.ticker.deltaMS * motionSpeedRef.current : dt;
+          model.update?.(elapsed);
+
+          if (isYanruyu) {
+            // 顏如玉:朗讀口型。pixi-live2d-display 0.4 的 model.update() 只累積時間,
+            // 動作在 render 時才套用,所以我們這裡的寫入會先於動作;之所以可行,
+            // 是因為顏如玉的動作/表情檔都沒有寫 PARAM_MOUTH_OPEN(已驗證)。
+            // 沒音源且嘴巴已閉合時完全不寫,讓動作檔自己的嘴型不受干擾。
+            const src = mouthSourceRef.current;
+            if (src || mouth > MOUTH_REST_EPSILON) {
+              try {
+                // 讀音量也放進 try:analyser 丟例外時視為 0,不能讓 PIXI ticker 中斷
+                let raw = 0;
+                try {
+                  raw = src ? src.level() : 0;
+                } catch (_) {
+                  raw = 0;
+                }
+                // 非有限值(NaN/Infinity)當 0,避免壞的一幀讓嘴巴卡住
+                mouth = smoothMouth(mouth, Number.isFinite(raw) ? raw : 0);
+                if (!src && mouth <= MOUTH_REST_EPSILON) mouth = 0;
+                model.internalModel?.coreModel?.setParameterValueById?.(
+                  "PARAM_MOUTH_OPEN",
+                  mouth,
+                );
+              } catch (_) {}
+            }
+          }
 
           if (isPoncho) {
             const core = model?.internalModel?.coreModel;
@@ -280,6 +446,7 @@ export default function Live2DPanel({
           let count = 0;
           const max = 60; // 最多重試約 1 秒：模型亮相（revealed）後再多校幾幀就收手
           const loop = () => {
+            if (destroyed) return; // app 已銷毀就不再呼叫 fit()
             fit();
             count++;
             if (count < max && !(revealed && count >= 10)) requestAnimationFrame(loop);
@@ -290,7 +457,12 @@ export default function Live2DPanel({
 
         appRef.current = app;
         app.start();
-      } catch (_) {}
+      } catch (err) {
+        if (!destroyed) {
+          console.error("[Live2DPanel] 模型載入失敗", modelUrl, err);
+          onLoadErrorRef.current?.(modelUrl, err);
+        }
+      }
     };
 
     mount();
@@ -298,6 +470,7 @@ export default function Live2DPanel({
     // 清除資源
     return () => {
       destroyed = true;
+      fitRef.current = null;
 
       try {
         ro?.disconnect();
@@ -323,9 +496,30 @@ export default function Live2DPanel({
     };
   }, [modelUrl]);
 
-  useEffect(() => {
-    const model = currentModelRef.current;
-    if (!model || !emotionToken) return;
+  // 依情緒 token 套用表情/動作（模型載入後與 token 變動時皆會呼叫）
+  const applyEmotion = (model: any, token: string | null | undefined) => {
+    if (!model || !token) return;
+    const emotionToken = token;
+
+    if (isYanruyuUrl(modelUrl)) {
+      const next = mapEmotion(token);
+      if (!shouldApply(yanruyuEmotionRef.current, next)) return;
+      yanruyuEmotionRef.current = next;
+      try {
+        // 動作先起(0.8 秒淡入,從目前姿勢轉過去),表情延後再換
+        model.internalModel.motionManager.groups.idle = next;
+        model.motion(next, 0, forcePriorityRef.current);
+        window.setTimeout(() => {
+          // 延遲期間若模型已換或情緒又變了,就不套這個過期的表情
+          if (currentModelRef.current !== model) return;
+          if (yanruyuEmotionRef.current !== next) return;
+          try {
+            model.expression(next);
+          } catch (_) {}
+        }, YANRUYU_EXPRESSION_DELAY_MS);
+      } catch (_) {}
+      return;
+    }
 
     const isPoncho = modelUrl.toLowerCase().includes("/poncho/");
     if (isPoncho) {
@@ -457,6 +651,10 @@ export default function Live2DPanel({
     try {
       model.motion(mapping.group, mapping.index);
     } catch (_) {}
+  };
+
+  useEffect(() => {
+    applyEmotion(currentModelRef.current, emotionToken);
   }, [emotionToken]);
 
   return (

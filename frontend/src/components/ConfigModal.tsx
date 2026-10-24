@@ -14,7 +14,11 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ElementType } from "react";
+import type { CharacterView, LayoutMode } from "./live2d/display";
+import type { ChatPage } from "../pages/chatPage";
+import { availableModels } from "../data/models";
 import {
+  DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   MODULE_META,
   assemblePersona,
@@ -51,11 +55,17 @@ export type ConfigDraft = {
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+  motionSpeed: number; // 角色動作速度倍率(1 = 原速);目前只影響顏如玉
+  characterView: CharacterView; // 人物顯示:全身 / 半身
+  layout: LayoutMode; // 版面:左右並排 / 上下(人物在後)
   persona: string;
   personaModules: PersonaModuleSet;
+  model: string; // 該頁使用的模型(聊天問答與書籍介紹各自獨立)
 };
 
 type ConfigModalProps = {
+  /** 目前所在的頁：決定系統提示詞與模型是哪一頁的 */
+  page: ChatPage;
   /** 開窗當下的現值：進來後即為草稿，關窗不儲存就丟棄 */
   initial: ConfigDraft;
   personaOptions: readonly PersonaOption[];
@@ -77,6 +87,7 @@ function SectionTitle({ no, text }: { no: string; text: string }) {
 }
 
 export default function ConfigModal({
+  page,
   initial,
   personaOptions,
   onClose,
@@ -173,18 +184,29 @@ export default function ConfigModal({
           只影響這台裝置；按「儲存並套用」才會生效，取消則不保留修改。
         </p>
 
-        <SectionTitle no="1" text="共通系統提示詞" />
+        <SectionTitle
+          no="1"
+          text={page === "book-guide" ? "系統提示詞（書籍介紹）" : "系統提示詞（聊天問答）"}
+        />
         <textarea
           value={draft.systemPrompt}
           onChange={(e) => setDraft((d) => ({ ...d, systemPrompt: e.target.value }))}
           rows={5}
-          placeholder="所有人設共用的基本指令"
+          placeholder="這一頁所有人設共用的基本指令"
           className="theme-input w-full resize-none rounded-lg px-3 py-2 text-sm"
         />
         <div className="mt-1 flex justify-end">
           <button
             type="button"
-            onClick={() => setDraft((d) => ({ ...d, systemPrompt: DEFAULT_SYSTEM_PROMPT }))}
+            onClick={() =>
+              setDraft((d) => ({
+                ...d,
+                systemPrompt:
+                  page === "book-guide"
+                    ? DEFAULT_BOOK_GUIDE_SYSTEM_PROMPT
+                    : DEFAULT_SYSTEM_PROMPT,
+              }))
+            }
             className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]"
           >
             <RotateCcw className="h-3 w-3" /> 還原預設
@@ -359,14 +381,9 @@ export default function ConfigModal({
           ))}
         </div>
         {previewMode === "single" ? (
-          <>
-            <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
-              {assembled || "（目前沒有任何系統指令）"}
-            </pre>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              書籍介紹模式下，送出時會再附加該模式的欄位指令。
-            </p>
-          </>
+          <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+            {assembled || "（目前沒有任何系統指令）"}
+          </pre>
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {personaOptions
@@ -396,6 +413,23 @@ export default function ConfigModal({
             進階參數
           </summary>
           <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+            模型{" "}
+            <span className="text-[var(--color-text-muted)]">
+              (只影響{page === "book-guide" ? "書籍介紹" : "聊天問答"}頁)
+            </span>
+          </label>
+          <select
+            value={draft.model}
+            onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+            className="theme-input mb-3 w-full rounded-lg px-3 py-2 text-sm"
+          >
+            {availableModels.map((m) => (
+              <option key={m} value={m}>
+                {m.replace(/^openai:/, "")}
+              </option>
+            ))}
+          </select>
+          <label className="mb-1 block text-sm text-[var(--color-text-secondary)]">
             Temperature{" "}
             <span className="text-[var(--color-text-muted)]">
               (數值越高，回答越有創意)
@@ -424,6 +458,77 @@ export default function ConfigModal({
             }
             className="theme-input mb-2 w-full rounded-lg px-3 py-2 text-sm"
           />
+          <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+            角色動作速度{" "}
+            <span className="text-[var(--color-text-muted)]">
+              (1 = 原速,目前 {draft.motionSpeed.toFixed(1)} 倍) (目前只套用顏如玉)
+            </span>
+          </label>
+          <input
+            type="range"
+            min="0.5"
+            max="2.5"
+            step="0.1"
+            value={draft.motionSpeed}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, motionSpeed: Number(e.target.value) }))
+            }
+            className="mb-2 w-full"
+          />
+          {(
+            [
+              {
+                key: "characterView",
+                label: "人物顯示",
+                hint: "(目前只套用顏如玉)",
+                options: [
+                  { id: "full", label: "全身" },
+                  { id: "half", label: "半身" },
+                ],
+              },
+              {
+                key: "layout",
+                label: "版面",
+                hint: "",
+                options: [
+                  { id: "side", label: "左右並排" },
+                  { id: "stacked", label: "上下（人物在後）" },
+                ],
+              },
+            ] as const
+          ).map((group) => (
+            <div key={group.key}>
+              <label className="mb-1 mt-3 block text-sm text-[var(--color-text-secondary)]">
+                {group.label}
+                {group.hint && (
+                  <>
+                    {" "}
+                    <span className="text-[var(--color-text-muted)]">
+                      {group.hint}
+                    </span>
+                  </>
+                )}
+              </label>
+              <div className="mb-2 flex gap-2">
+                {group.options.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() =>
+                      setDraft((d) => ({ ...d, [group.key]: o.id }))
+                    }
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                      draft[group.key] === o.id
+                        ? "border-[var(--color-accent-strong)] bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
+                        : "border-[var(--color-border)] text-[var(--color-text-muted)]"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </details>
 
         <div className="mt-6 flex justify-end gap-3">

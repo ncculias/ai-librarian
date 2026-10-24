@@ -1,11 +1,84 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowDown, MessageCircleQuestionMark } from "lucide-react";
+import {
+  ArrowDown,
+  Check,
+  Copy,
+  MessageCircleQuestionMark,
+  Square,
+  Volume2,
+} from "lucide-react";
+import { parseMarkdownBlocks } from "./markdownBlocks";
+
+type ReplySource = { tool: string; label: string; urls: string[] };
 
 type Message = {
   role: "user" | "assistant";
   content: string;
+  sources?: ReplySource[]; // assistant 回覆用過的工具與連結(空 = 沒用外部工具)
+  kind?: "greeting"; // 進站問候語:不顯示來源/免責
 };
+
+// 同一個工具在一輪裡可能被叫多次(例如重試),顯示時合併並去重連結
+function mergeSources(sources: ReplySource[]): ReplySource[] {
+  const byTool = new Map<string, ReplySource>();
+  for (const s of sources) {
+    const cur = byTool.get(s.tool);
+    if (!cur) byTool.set(s.tool, { ...s, urls: [...s.urls] });
+    else cur.urls = Array.from(new Set([...cur.urls, ...s.urls]));
+  }
+  return Array.from(byTool.values());
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// 每則 AI 回覆下方的「資料來源 + 免責提醒」
+function ReplyFooter({ sources }: { sources?: ReplySource[] }) {
+  const merged = mergeSources(sources ?? []);
+  return (
+    <div
+      className="msg-text-xs mt-3 border-t pt-2"
+      style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+    >
+      <div>
+        <span className="font-semibold">資料來源：</span>
+        {merged.length === 0 ? (
+          <span>未使用外部查詢工具，依 AI 既有知識回答。</span>
+        ) : (
+          <ul className="mt-1 space-y-0.5">
+            {merged.map((s) => (
+              <li key={s.tool}>
+                {s.label}
+                {s.urls.map((u, j) => (
+                  <span key={u}>
+                    {j === 0 ? "：" : "、"}
+                    <a
+                      href={u}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all underline"
+                      title={u}
+                    >
+                      {hostOf(u)}
+                      {s.urls.length > 1 ? ` (${j + 1})` : ""}
+                    </a>
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-1">⚠ AI 生成的內容可能有誤，重要資訊請自行查證。</div>
+    </div>
+  );
+}
 
 type Props = {
   messages: Message[];
@@ -17,10 +90,71 @@ type Props = {
   };
   /** 等待中的狀態文字（例如「思考中」「正在使用：google書籍⋯⋯」）；有值就顯示三點思考泡泡 */
   pendingStatus?: string | null;
+  /** 每則 AI 回覆下方的動作列:複製、朗讀/停止(index 為訊息在 messages 的索引) */
+  onCopy?: (index: number) => boolean | void | Promise<boolean | void>;
+  onSpeak?: (index: number) => void;
+  onStopSpeak?: () => void;
+  speakingIndex?: number | null;
+  /** 正在向後端取語音(Gemini TTS 合成中),按鈕顯示「準備中」 */
+  speakLoading?: boolean;
 };
 
-const orderedListPattern = /^\d+\.\s+/;
-const unorderedListPattern = /^[-*]\s+/;
+// 每則 AI 回覆下方的動作列(仿 ChatGPT):複製、朗讀
+function ReplyActions({
+  index,
+  speaking,
+  loading,
+  showSpeak,
+  onCopy,
+  onSpeak,
+  onStopSpeak,
+}: {
+  index: number;
+  speaking: boolean;
+  loading: boolean;
+  showSpeak: boolean;
+  onCopy?: (index: number) => boolean | void | Promise<boolean | void>;
+  onSpeak?: (index: number) => void;
+  onStopSpeak?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (!onCopy && !onSpeak) return null;
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      {onCopy && (
+        <button
+          type="button"
+          onClick={async () => {
+            // 只有真的複製成功才顯示「已複製」;失敗由父層用提示告知
+            const ok = await onCopy(index);
+            if (ok === false) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+          className="theme-icon-button inline-flex items-center gap-1 rounded-md px-2 py-1 msg-text-sm"
+          aria-label="複製這則回覆"
+          title="複製"
+        >
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          <span>{copied ? "已複製" : "複製"}</span>
+        </button>
+      )}
+      {showSpeak && onSpeak && (
+        <button
+          type="button"
+          onClick={() => (speaking ? onStopSpeak?.() : onSpeak(index))}
+          className="theme-icon-button inline-flex items-center gap-1 rounded-md px-2 py-1 msg-text-sm"
+          aria-label={speaking ? "停止朗讀" : "朗讀這則回覆"}
+          title={speaking ? "停止" : "朗讀"}
+        >
+          {speaking ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+          <span>{speaking ? (loading ? "準備中…" : "停止") : "朗讀"}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 // Markdown 自動連結 <https://...>：顯示時去掉尖括號
 const autolinkPattern = /<(https?:\/\/[^\s>]+)>/g;
@@ -110,49 +244,39 @@ function renderParagraph(text: string, key: string) {
 }
 
 function renderMarkdownContent(content: string) {
-  const blocks = content
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
-  return blocks.map((block, blockIndex) => {
-    const lines = block.split("\n").filter(Boolean);
-    const isOrderedList =
-      lines.length > 1 && lines.every((line) => orderedListPattern.test(line));
-    const isUnorderedList =
-      lines.length > 1 && lines.every((line) => unorderedListPattern.test(line));
-
-    if (isOrderedList) {
+  return parseMarkdownBlocks(content).map((block, blockIndex) => {
+    if (block.type === "heading") {
+      const Tag = `h${block.level + 2}` as "h3" | "h4" | "h5";
       return (
-        <ol
-          key={`ordered-${blockIndex}`}
-          className="message-list list-decimal space-y-1 pl-5"
-        >
-          {lines.map((line, itemIndex) => (
-            <li key={`ordered-${blockIndex}-${itemIndex}`}>
-              {renderInlineMarkdown(line.replace(orderedListPattern, ""))}
-            </li>
-          ))}
-        </ol>
+        <Tag key={`heading-${blockIndex}`} className={`message-heading message-heading-${block.level}`}>
+          {renderInlineMarkdown(block.text)}
+        </Tag>
       );
     }
 
-    if (isUnorderedList) {
+    if (block.type === "list") {
+      const ListTag = block.ordered ? "ol" : "ul";
       return (
-        <ul
-          key={`unordered-${blockIndex}`}
-          className="message-list list-disc space-y-1 pl-5"
+        <ListTag
+          key={`list-${blockIndex}`}
+          start={block.ordered ? block.start : undefined}
+          className={`message-list ${block.ordered ? "list-decimal" : "list-disc"} space-y-1 pl-5`}
         >
-          {lines.map((line, itemIndex) => (
-            <li key={`unordered-${blockIndex}-${itemIndex}`}>
-              {renderInlineMarkdown(line.replace(unorderedListPattern, ""))}
+          {block.items.map((item, itemIndex) => (
+            <li key={`list-${blockIndex}-${itemIndex}`}>
+              {item.split("\n").map((line, lineIndex) => (
+                <span key={`list-${blockIndex}-${itemIndex}-${lineIndex}`}>
+                  {lineIndex > 0 ? <br /> : null}
+                  {renderInlineMarkdown(line)}
+                </span>
+              ))}
             </li>
           ))}
-        </ul>
+        </ListTag>
       );
     }
 
-    return renderParagraph(block, `paragraph-${blockIndex}`);
+    return renderParagraph(block.lines.join("\n"), `paragraph-${blockIndex}`);
   });
 }
 
@@ -162,6 +286,11 @@ export default function MessageList({
   onFollowUpClick,
   assistantActions,
   pendingStatus,
+  onCopy,
+  onSpeak,
+  onStopSpeak,
+  speakingIndex = null,
+  speakLoading = false,
 }: Props) {
   // 自動捲到最新：使用者在底部附近才跟著捲；往上讀舊訊息時不打擾。
   // 自己送出的訊息（最後一則是 user）則一律捲到底。
@@ -217,28 +346,53 @@ export default function MessageList({
             }`}
           >
             {m.role === "assistant" ? (
-              <div className="message-markdown space-y-3">
-                {renderMarkdownContent(m.content)}
-              </div>
+              <>
+                <div className="message-markdown space-y-3">
+                  {renderMarkdownContent(m.content)}
+                </div>
+                {m.kind !== "greeting" && <ReplyFooter sources={m.sources} />}
+              </>
             ) : (
               m.content
             )}
           </div>
         );
 
+        // 說故事模式已有自己的播放/停止鈕時,動作列就不重複放朗讀鈕
+        const actions =
+          m.role === "assistant" ? (
+            <ReplyActions
+              index={i}
+              speaking={speakingIndex === i}
+              loading={speakingIndex === i && speakLoading}
+              showSpeak={assistantActions?.messageIndex !== i}
+              onCopy={onCopy}
+              onSpeak={onSpeak}
+              onStopSpeak={onStopSpeak}
+            />
+          ) : null;
+
         if (
           m.role === "assistant" &&
           assistantActions?.messageIndex === i
         ) {
           return (
-            <div key={i} className="flex items-start gap-2">
-              {bubble}
-              {assistantActions.controls}
+            <div key={i}>
+              <div className="flex items-start gap-2">
+                {bubble}
+                {assistantActions.controls}
+              </div>
+              {actions}
             </div>
           );
         }
 
-        return <div key={i}>{bubble}</div>;
+        return (
+          <div key={i}>
+            {bubble}
+            {actions}
+          </div>
+        );
       })}
 
       {/* 思考泡泡：等待回覆時顯示三點動畫＋目前階段（第一個字到就消失） */}
