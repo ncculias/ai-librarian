@@ -167,7 +167,7 @@
   font-size: calc(var(--font-size-base, 16px) * 0.95);
   font-weight: 700;
   transform: rotate(-3deg);
-  box-shadow: 0 10px 30px rgba(var(--color-shadow), 0.2);
+  box-shadow: 0 10px 30px rgb(var(--color-shadow) / 0.2);
 }
 .hs-badge small {
   display: block;
@@ -374,7 +374,7 @@
 .hs-pola {
   padding: 12px 12px 36px;
   background: var(--color-bg-card);
-  box-shadow: 0 20px 50px rgba(var(--color-shadow), 0.12);
+  box-shadow: 0 20px 50px rgb(var(--color-shadow) / 0.12);
   opacity: 0;
   transform: rotate(var(--r)) translateY(60px);
   transition:
@@ -554,7 +554,7 @@
 .hs-row:focus-visible .hs-ico {
   background: var(--color-accent-strong);
   border-color: var(--color-accent-strong);
-  color: #fff;
+  color: var(--color-bg-page);
   transform: rotate(-45deg) scale(1.08);
 }
 /* hover 時浮出的斜色塊（高度小於最矮的一行，才不會被 overflow 裁到） */
@@ -567,7 +567,7 @@
   padding: 5px 5px 14px;
   border-radius: 6px;
   background: var(--color-bg-card);
-  box-shadow: 0 16px 36px rgba(var(--color-shadow), 0.14);
+  box-shadow: 0 16px 36px rgb(var(--color-shadow) / 0.14);
   opacity: 0;
   transform: translateY(-50%) rotate(6deg) scale(0.6);
   transition:
@@ -622,9 +622,6 @@
     align-items: center;
     gap: 28px;
     padding: 16vh 6vw 8vh;
-  }
-  .hs-word {
-    font-size: 17vw;
   }
   .hs-word.w1 {
     left: 5vw;
@@ -710,9 +707,17 @@
 /* ───── 減少動態：全部關閉 ───── */
 @media (prefers-reduced-motion: reduce) {
   .hs-hero *,
+  .hs-hero *::before,
+  .hs-hero *::after,
   .hs-stage *,
+  .hs-stage *::before,
+  .hs-stage *::after,
   .hs-story *,
-  .hs-index * {
+  .hs-story *::before,
+  .hs-story *::after,
+  .hs-index *,
+  .hs-index *::before,
+  .hs-index *::after {
     animation: none !important;
     transition: none !important;
   }

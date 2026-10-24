@@ -26,8 +26,8 @@ export default function HomeStory() {
         ))}
       </div>
 
-      {/* 一個容器 ref 管三張，靠 transition-delay 錯開 */}
-      <div ref={ref} className={`hs-polas ${inView ? "is-on" : ""}`}>
+      {/* 一個容器 ref 管三張，靠 transition-delay 錯開；拍立得只是示意，對輔助科技隱藏 */}
+      <div ref={ref} className={`hs-polas ${inView ? "is-on" : ""}`} aria-hidden="true">
         {POLAROIDS.map((p, i) => (
           <div
             key={STORY.polaroids[i]}
