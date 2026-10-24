@@ -64,18 +64,47 @@ export const STORY = {
 /** 釘住區的捲動進度門檻：進度達到門檻就進入下一步 */
 export const STAGE_STEPS = [0.12, 0.42, 0.72] as const;
 
-/** 各步驟主視覺（人像）的位置與縮放，索引對應 stepFromProgress 的回傳值 */
-// 人物依步驟左右讓位；步驟由 useSequencedStep 一格一格走，快速捲動也會「左停一下、右停一下」
-export const STAGE_POSES = [
-  "translateX(0) scale(1)",
-  "translateX(14vw) scale(1.04)",
-  "translateX(-14vw) scale(1.04)",
-  "translateX(12vw) scale(1.02)",
-] as const;
-/** 每個步驟至少停留的毫秒數：要容得下「先回中間停一下、再到定位」兩段 0.6s 過場 */
-export const STAGE_DWELL_MS = 1600;
-/** 左右互換時先回到中間停留的毫秒數（含 0.6s 回中過場） */
-export const STAGE_CENTER_PAUSE_MS = 900;
+/**
+ * 人像位置的關鍵影格：[捲動進度, 水平位移 vw, 縮放]。
+ * 兩點之間線性內插，相鄰兩點數值相同就是「頓點」。完全由捲動位置決定、沒有計時器：
+ * 使用者停手畫面就停，滑多快動多快；左右互換前一定先回中間停一段。
+ */
+export const STAGE_POSE_KEYFRAMES: readonly (readonly [number, number, number])[] = [
+  [0, 0, 1],
+  [0.12, 0, 1], // 步驟 1 開始才動
+  [0.2, 14, 1.04], // 往右
+  [0.34, 14, 1.04], // 右邊停
+  [0.38, 0, 1], // 回中間
+  [0.42, 0, 1], // 中間停（步驟 2 開始）
+  [0.5, -14, 1.04], // 往左
+  [0.64, -14, 1.04], // 左邊停
+  [0.68, 0, 1], // 回中間
+  [0.72, 0, 1], // 中間停（步驟 3 開始）
+  [0.8, 12, 1.02], // 往右
+  [1, 12, 1.02],
+];
+
+/** 捲動進度 → 人像位置（線性內插）；NaN／超出範圍夾到 0..1 */
+export function stagePoseAt(p: number): { x: number; scale: number } {
+  const t = Number.isNaN(p) ? 0 : Math.min(1, Math.max(0, p));
+  const k = STAGE_POSE_KEYFRAMES;
+  for (let i = 1; i < k.length; i++) {
+    const [p0, x0, s0] = k[i - 1];
+    const [p1, x1, s1] = k[i];
+    if (t <= p1) {
+      const r = p1 === p0 ? 1 : (t - p0) / (p1 - p0);
+      return { x: x0 + (x1 - x0) * r, scale: s0 + (s1 - s0) * r };
+    }
+  }
+  const [, x, scale] = k[k.length - 1];
+  return { x, scale };
+}
+
+/** stagePoseAt 的 CSS transform 字串 */
+export function stagePoseTransform(p: number): string {
+  const { x, scale } = stagePoseAt(p);
+  return `translateX(${x.toFixed(2)}vw) scale(${scale.toFixed(3)})`;
+}
 
 /** 捲動進度 0..1 → 步驟 0..3；門檻含下界（剛好 0.12 即進入步驟 1）；NaN 與負值視為 0 */
 export function stepFromProgress(p: number): 0 | 1 | 2 | 3 {

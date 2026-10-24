@@ -229,7 +229,8 @@
   width: auto;
   max-width: 40vw;
   object-fit: contain;
-  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 位置由捲動進度決定，每幀更新；只留很短的過渡把幀與幀之間抹平 */
+  transition: transform 0.12s linear;
   filter: drop-shadow(
     0 30px 40px color-mix(in srgb, var(--color-text-primary) 22%, transparent)
   );

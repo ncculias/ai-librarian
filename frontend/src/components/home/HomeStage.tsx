@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { YANRUYU_PORTRAIT_URL } from "../live2d/yanruyu";
-import { HOME_ENTRIES, STAGE_CENTER_PAUSE_MS, STAGE_DWELL_MS, STAGE_POSES, stepFromProgress } from "./homeContent";
+import { HOME_ENTRIES, stagePoseTransform, stepFromProgress } from "./homeContent";
 import { useInView } from "../../hooks/useInView";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { useScrollProgress } from "../../hooks/useScrollProgress";
-import { useSequencedStep } from "../../hooks/useSequencedStep";
 
 const STACKED_QUERY = "(max-width: 1023px)";
 
@@ -29,27 +28,10 @@ function useStacked(): boolean {
 export default function HomeStage() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const progress = useScrollProgress(wrapRef);
-  const target = stepFromProgress(progress);
+  const step = stepFromProgress(progress);
   const reduced = usePrefersReducedMotion();
   const stacked = useStacked();
-  // 步驟一格一格走：快速捲動時人物也會左停一下、右停一下，不會把過場疊成閃動；減少動態與堆疊版面不排隊
-  const step = useSequencedStep(target, STAGE_DWELL_MS, !(reduced || stacked));
-  // 人物姿勢：左右互換（例如 1→2 是右→左）時先回中間停一下，再滑到定位，讓每一步都有頓點
-  const [pose, setPose] = useState<string>(STAGE_POSES[step]);
-  const prevStep = useRef(step);
-  useEffect(() => {
-    const from = prevStep.current;
-    prevStep.current = step;
-    if (from === step) return;
-    const viaCenter = from >= 1 && step >= 1;
-    if (!viaCenter) {
-      setPose(STAGE_POSES[step]);
-      return;
-    }
-    setPose(STAGE_POSES[0]);
-    const id = window.setTimeout(() => setPose(STAGE_POSES[step]), STAGE_CENTER_PAUSE_MS);
-    return () => window.clearTimeout(id);
-  }, [step]);
+  // 人物位置完全跟著捲動進度（關鍵影格內插），沒有計時器：停手就停、左右互換前先回中間停一段
   const [stageRef, inView] = useInView<HTMLDivElement>();
   const [portraitOk, setPortraitOk] = useState(true);
 
@@ -92,7 +74,7 @@ export default function HomeStage() {
             loading="lazy"
             decoding="async"
             onError={() => setPortraitOk(false)}
-            style={{ transform: reduced || stacked ? undefined : pose }}
+            style={{ transform: reduced || stacked ? undefined : stagePoseTransform(progress) }}
           />
         )}
 
