@@ -72,8 +72,10 @@ export const STAGE_POSES = [
   "translateX(-14vw) scale(1.04)",
   "translateX(12vw) scale(1.02)",
 ] as const;
-/** 每個步驟至少停留的毫秒數（含 0.6s 過場 + 看得見的停頓） */
-export const STAGE_DWELL_MS = 900;
+/** 每個步驟至少停留的毫秒數：要容得下「先回中間停一下、再到定位」兩段 0.6s 過場 */
+export const STAGE_DWELL_MS = 1600;
+/** 左右互換時先回到中間停留的毫秒數（含 0.6s 回中過場） */
+export const STAGE_CENTER_PAUSE_MS = 900;
 
 /** 捲動進度 0..1 → 步驟 0..3；門檻含下界（剛好 0.12 即進入步驟 1）；NaN 與負值視為 0 */
 export function stepFromProgress(p: number): 0 | 1 | 2 | 3 {
