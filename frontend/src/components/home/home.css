@@ -155,27 +155,6 @@
   color: var(--color-text-primary);
 }
 
-/* 黃色標籤：唯一的字面色碼 */
-.hs-badge {
-  position: absolute;
-  right: 7vw;
-  bottom: 12vh;
-  z-index: 4;
-  padding: 10px 16px;
-  border-radius: 12px;
-  background: #facc15;
-  color: #111;
-  font-size: calc(var(--font-size-base, 16px) * 0.95);
-  font-weight: 700;
-  transform: rotate(-3deg);
-  box-shadow: 0 10px 30px rgb(var(--color-shadow) / 0.2);
-}
-.hs-badge small {
-  display: block;
-  font-size: calc(var(--font-size-base, 16px) * 0.7);
-  font-weight: 400;
-}
-
 .hs-hint {
   position: absolute;
   left: 50%;
@@ -472,8 +451,7 @@
     align-items: flex-start;
     padding: 0 6vw 56px;
   }
-  .hs-sub,
-  .hs-badge {
+  .hs-sub {
     position: static;
     margin-top: 12px;
     max-width: none;

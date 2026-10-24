@@ -49,7 +49,6 @@ export const HERO = {
   headline: "讓 AI 館員陪你找書、聽故事",
   tagline: "Unlock knowledge, powered by AI.",
   desc: "查館藏、介紹書籍，或把你的照片做成一本有聲故事書。",
-  badge: { big: "24 小時都在", small: "問問題、查館藏、聽故事" },
   hint: "往下捲 ↓",
 } as const;
 

@@ -58,11 +58,6 @@ export default function HomeHero() {
         <div className="msg-text">{HERO.desc}</div>
       </div>
 
-      <div className="hs-badge">
-        {HERO.badge.big}
-        <small>{HERO.badge.small}</small>
-      </div>
-
       <div className="hs-hint">{HERO.hint}</div>
     </section>
   );
