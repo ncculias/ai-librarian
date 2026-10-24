@@ -417,10 +417,11 @@
 :root[data-theme="dark"] .hs-polas.is-on .hs-pola {
   opacity: 0.28;
 }
-.hs-pola i {
+.hs-pola img {
   display: block;
   width: 180px;
   height: 220px;
+  object-fit: cover;
   border-radius: 4px;
 }
 .hs-pola span {
