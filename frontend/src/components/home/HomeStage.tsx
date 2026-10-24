@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { YANRUYU_PORTRAIT_URL } from "../live2d/yanruyu";
-import { HOME_ENTRIES, STAGE_POSES, stepFromProgress } from "./homeContent";
+import { HOME_ENTRIES, STAGE_DWELL_MS, STAGE_POSES, stepFromProgress } from "./homeContent";
 import { useInView } from "../../hooks/useInView";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { useScrollProgress } from "../../hooks/useScrollProgress";
+import { useSequencedStep } from "../../hooks/useSequencedStep";
 
 const STACKED_QUERY = "(max-width: 1023px)";
 
@@ -28,9 +29,11 @@ function useStacked(): boolean {
 export default function HomeStage() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const progress = useScrollProgress(wrapRef);
-  const step = stepFromProgress(progress);
+  const target = stepFromProgress(progress);
   const reduced = usePrefersReducedMotion();
   const stacked = useStacked();
+  // 步驟一格一格走：快速捲動時人物也會左停一下、右停一下，不會把過場疊成閃動；減少動態與堆疊版面不排隊
+  const step = useSequencedStep(target, STAGE_DWELL_MS, !(reduced || stacked));
   const [stageRef, inView] = useInView<HTMLDivElement>();
   const [portraitOk, setPortraitOk] = useState(true);
 
