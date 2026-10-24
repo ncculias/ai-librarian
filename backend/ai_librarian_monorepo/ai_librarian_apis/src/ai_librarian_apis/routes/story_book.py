@@ -16,6 +16,7 @@ from ai_librarian_apis.schemas.story_book import (
     StoryChatResponse,
     StoryRequest,
 )
+from ai_librarian_apis.services.tts_cache import cache_key, tts_cache
 from fastapi import APIRouter, HTTPException, Response
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -146,6 +147,12 @@ async def speak(req: SpeakRequest) -> Response:
     if not key:
         raise HTTPException(status_code=500, detail="伺服器未設定 GEMINI_API_KEY。")
 
+    # 同一句話、同一聲線只合成一次：開場白、重聽同一則回覆都不用再等 4～5 秒
+    ck = cache_key(text, GEMINI_TTS_VOICE)
+    cached = tts_cache.get(ck)
+    if cached is not None:
+        return Response(content=cached, media_type="audio/wav", headers={"X-TTS-Cache": "hit"})
+
     payload = {
         "contents": [
             {"parts": [{"text": f"請用溫柔、溫暖、自然的口氣，以一般正常、流暢的語速（不要太慢）念這段故事：{text}"}]}
@@ -187,7 +194,8 @@ async def speak(req: SpeakRequest) -> Response:
         logger.exception("Text-to-speech failed")
         raise HTTPException(status_code=500, detail="朗讀產生失敗，請稍後再試。") from e
 
-    return Response(content=wav_bytes, media_type="audio/wav")
+    tts_cache.put(ck, wav_bytes)
+    return Response(content=wav_bytes, media_type="audio/wav", headers={"X-TTS-Cache": "miss"})
 
 
 @story_book_router.post(
