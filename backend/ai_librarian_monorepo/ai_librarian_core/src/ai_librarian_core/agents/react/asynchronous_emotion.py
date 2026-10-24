@@ -1,21 +1,28 @@
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ai_librarian_core.agents.react.base import _cleanup_thread, BaseReactAgent, MissingAIMessageError, ReactAgentError
+from ai_librarian_core.agents.react.base import BaseReactAgent, MissingAIMessageError, ReactAgentError, _cleanup_thread
+from ai_librarian_core.agents.react.emotion_classifier import (
+    EMOTION_TIMEOUT_SECONDS,
+    build_emotion_llm,
+    classify_emotion,
+    latest_user_text,
+)
 from ai_librarian_core.agents.react.state import Emotion, MessagesEmotionState
 from ai_librarian_core.models.llm_config import LLMConfig
 from ai_librarian_core.models.used_tool import UsedTool
 from ai_librarian_core.utils.uuid import get_thread_id
+from langchain.chat_models.base import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langgraph.graph import StateGraph
+from langgraph.config import get_stream_writer
+from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
-from pydantic import BaseModel, ValidationError
 
-
-class EmotionOutput(BaseModel):
-    emotion: Emotion
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,6 +30,18 @@ class AsyncReactEmotionAgent(BaseReactAgent):
     def __post_init__(self):
         super().__post_init__()
         self.state_schema = MessagesEmotionState
+        self._emotion_llm_instance: BaseChatModel | None = None
+
+    @property
+    def _emotion_llm(self) -> BaseChatModel:
+        """Small, deterministic classifier model; built lazily once and reused."""
+        if self._emotion_llm_instance is None:
+            self._emotion_llm_instance = build_emotion_llm()
+        return self._emotion_llm_instance
+
+    @_emotion_llm.setter
+    def _emotion_llm(self, llm: BaseChatModel) -> None:
+        self._emotion_llm_instance = llm
 
     @property
     def workflow(self) -> CompiledStateGraph:
@@ -43,50 +62,38 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         except Exception as e:
             raise ReactAgentError("An unexpected error occurred while trying to invoke the chat model.") from e
 
-    async def _detect_emotion(self, state: MessagesEmotionState) -> dict[str, Emotion]:
-        llm_config = state.llm_config
-        llm = self._init_llm(llm_config).with_structured_output(EmotionOutput)
-        recent_messages = state.messages[-3:]
-        history = "\n".join(
-            f"{message.type.upper()}: {getattr(message, 'content', '')}"
-            for message in recent_messages
-            if getattr(message, "content", None)
-        )
+    async def _classify_turn(self, state: MessagesEmotionState) -> Emotion:
         try:
-            response = await llm.ainvoke(
-                f"""
-        You are a helpful assistant that detects the emotion from the chat history.
-        The chat history is:
-        {history}
-        Return the emotion of the chat history.
-        """,
+            llm = self._emotion_llm
+        except Exception:  # noqa: BLE001 - a classifier misconfiguration must never fail the reply
+            logger.warning("Emotion classifier model could not be initialised; using neutral.", exc_info=True)
+            return Emotion.NEUTRAL
+        try:
+            return await asyncio.wait_for(
+                classify_emotion(llm, latest_user_text(state.messages)), EMOTION_TIMEOUT_SECONDS
             )
-        except ValidationError:
-            return {"emotion": Emotion.NEUTRAL}
+        except TimeoutError:
+            logger.warning("Emotion classification timed out after %.1fs; using neutral.", EMOTION_TIMEOUT_SECONDS)
+            return Emotion.NEUTRAL
 
-        emotion_value: Any
-        if isinstance(response, EmotionOutput):
-            emotion_value = response.emotion
-        elif isinstance(response, dict):
-            emotion_value = response.get("emotion", Emotion.NEUTRAL)
-        else:
-            emotion_value = getattr(response, "emotion", Emotion.NEUTRAL)
-
+    async def _detect_emotion(self, state: MessagesEmotionState) -> dict[str, Emotion]:
+        # Runs in parallel with the reply and only looks at the user's latest message.
+        emotion = await self._classify_turn(state)
+        # Tell the stream right away: node results (`values`) only arrive at the end of the superstep.
         try:
-            emotion = emotion_value if isinstance(emotion_value, Emotion) else Emotion(emotion_value)
-        except ValueError:
-            emotion = Emotion.NEUTRAL
-
+            get_stream_writer()({"emotion": emotion.value})
+        except Exception:  # noqa: BLE001 - outside a stream (e.g. ainvoke, direct call) there is no writer
+            pass
         return {"emotion": emotion}
 
-    async def _route(self, state: MessagesEmotionState) -> Literal["tools", "detect_emotion"]:
+    async def _route(self, state: MessagesEmotionState) -> Literal["tools", "__end__"]:
         messages = state.messages
         last_message = messages[-1]
         if not isinstance(last_message, AIMessage):
             raise MissingAIMessageError(f"Expected AIMessage in output edges, but got {type(last_message).__name__}")
         if last_message.tool_calls:
             return "tools"
-        return "detect_emotion"
+        return END
 
     async def _catch_tool_massage(self, state: MessagesEmotionState) -> dict[str, Any]:
         start_index = state.tool_cursor
@@ -110,6 +117,8 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         workflow.add_node("catch_tool_massage", self._catch_tool_massage)
         workflow.add_node("tools", tool_node)
         workflow.set_entry_point("clear_used_tools")
+        # Fan out: classify the user's emotion in parallel with the reply.
+        workflow.add_edge("clear_used_tools", "detect_emotion")
         workflow.add_edge("clear_used_tools", "invoke_llm")
         workflow.add_conditional_edges(
             "invoke_llm",
@@ -117,7 +126,7 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         )
         workflow.add_edge("catch_tool_massage", "invoke_llm")
         workflow.add_edge("tools", "catch_tool_massage")
-        workflow.add_edge("detect_emotion", "__end__")
+        workflow.add_edge("detect_emotion", END)
         return workflow.compile(name=self.name, checkpointer=self.checkpointer)
 
     async def run(
@@ -126,9 +135,7 @@ class AsyncReactEmotionAgent(BaseReactAgent):
         state = MessagesEmotionState(messages=messages, llm_config=llm_config)
         tid = thread_id or get_thread_id()
         try:
-            result = await self.workflow.ainvoke(
-                state, config={"configurable": {"thread_id": tid}}
-            )
+            result = await self.workflow.ainvoke(state, config={"configurable": {"thread_id": tid}})
         finally:
             _cleanup_thread(self.checkpointer, tid)
         return result["messages"][-1], result["used_tools"], result["emotion"]
@@ -143,7 +150,7 @@ class AsyncReactEmotionAgent(BaseReactAgent):
             try:
                 async for item in self.workflow.astream(
                     state,
-                    stream_mode=["messages", "values"],
+                    stream_mode=["messages", "values", "custom"],
                     config={"configurable": {"thread_id": tid}},
                 ):
                     yield item

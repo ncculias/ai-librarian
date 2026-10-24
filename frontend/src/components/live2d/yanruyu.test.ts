@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   YANRUYU_MODEL_URL,
   YANRUYU_PATH,
+  YANRUYU_PORTRAIT_URL,
   checkYanruyuSupport,
   isYanruyuUrl,
   mapEmotion,
@@ -11,10 +12,11 @@ import {
 
 test("mapEmotion 對照表", () => {
   assert.equal(mapEmotion("neutral"), "normal");
-  assert.equal(mapEmotion("anger"), "angry");
+  assert.equal(mapEmotion("anger"), null);
+  assert.equal(mapEmotion("think"), "think");
   assert.equal(mapEmotion("angry"), "angry");
   assert.equal(mapEmotion("happy"), "happy");
-  assert.equal(mapEmotion("surprised"), "happy");
+  assert.equal(mapEmotion("surprised"), "think");
   assert.equal(mapEmotion("sad"), "sad");
   assert.equal(mapEmotion("excited"), null);
   assert.equal(mapEmotion(""), null);
@@ -65,6 +67,7 @@ test("checkYanruyuSupport", () => {
 test("isYanruyuUrl 大小寫不敏感", () => {
   assert.equal(YANRUYU_PATH, "/yanruyu/");
   assert.equal(YANRUYU_MODEL_URL, "/yanruyu/yanruyu.model3.json");
+  assert.equal(YANRUYU_PORTRAIT_URL, "/yanruyu/portrait.png");
   assert.equal(isYanruyuUrl(YANRUYU_MODEL_URL), true);
   assert.equal(isYanruyuUrl("/Yanruyu/yanruyu.model3.json"), true);
   assert.equal(isYanruyuUrl("/poncho/poncho.model3.json"), false);

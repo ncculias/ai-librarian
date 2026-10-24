@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from ai_librarian_apis.core.global_vars import react_agent, react_emotion_agent
@@ -12,6 +13,7 @@ from ai_librarian_apis.schemas.react import (
     OpenAIMessage,
 )
 from ai_librarian_apis.schemas.sse import EmotionPayload, EventPayload, LLMChunkPayload, SSEEvent, ToolPayload
+from ai_librarian_apis.services.emotion_rules import EmotionEventKind, next_emotion_events
 from ai_librarian_apis.utils.sse_example import get_sse_response_example
 from ai_librarian_core.agents.react.state import Emotion
 from ai_librarian_core.models.llm_config import Model
@@ -19,6 +21,11 @@ from ai_librarian_core.models.used_tool import UsedTool
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, ToolMessage
+
+# How long to hold the reply back, at most, while waiting for the emotion classifier.
+EMOTION_HOLD_SECONDS = 2.5
+# Upper bound on waiting for a cancelled in-flight chunk during cleanup.
+_SHUTDOWN_WAIT_SECONDS = 5.0
 
 react_router = APIRouter(prefix="/react", tags=["ReAct Agent"])
 react_emotion_router = APIRouter(prefix="/react", tags=["ReAct Agent With Emotion"])
@@ -154,6 +161,27 @@ def _process_ai_message(
     return None
 
 
+async def _shutdown_stream(iterator: Any, next_item: "asyncio.Future | None") -> None:
+    """Stop an in-flight ``__anext__`` and close the agent stream without raising."""
+    if next_item is not None:
+        if not next_item.done():
+            next_item.cancel()
+            # Wait until the cancelled call has really finished; closing a running generator raises.
+            await asyncio.wait({next_item}, timeout=_SHUTDOWN_WAIT_SECONDS)
+            if not next_item.done():
+                # Still running past the bound: retrieve its outcome later so asyncio never logs
+                # "Task exception was never retrieved".
+                next_item.add_done_callback(lambda t: t.cancelled() or t.exception())
+        if next_item.done() and not next_item.cancelled():
+            next_item.exception()  # mark retrieved
+    aclose = getattr(iterator, "aclose", None)
+    if aclose is not None:
+        try:
+            await aclose()
+        except Exception:  # noqa: BLE001 - cleanup must never raise
+            logger.warning("Closing the emotion stream failed.", exc_info=True)
+
+
 @react_router.post(
     "/stream",
     description=(
@@ -243,31 +271,82 @@ async def stream_react_agent(agent_request: AgentRequest, request: Request):
 async def stream_react_emotion_agent(agent_request: AgentRequest, request: Request):
     async def stream_chunk():
         has_llm_started = False
-        emotion_ready = False
-        last_emotion: Emotion | None = None
+        turn_emotion: Emotion | None = None  # the user's emotion for this turn, once detected
+        last_emotion: Emotion | None = None  # what the client was last told
+        detect_seen = False  # a detect_emotion chunk has arrived, so state.emotion is meaningful
+        state_emotion: Emotion | None = None  # latest emotion seen in a `values` state
+        hold_over = False  # stop holding reply events (emotion arrived, or waited too long)
+        pending: list[ToolMessage | AIMessage] = []  # reply messages held back until the emotion is known
         llm_config_dict = agent_request.llm_config.model_dump(mode="json")
-        stream = await react_emotion_agent.stream(
-            agent_request.get_langchain_messages(),
-            thread_id=agent_request.thread_id,
-            llm_config=agent_request.llm_config,
-        )
-        async for chunk in stream:
-            if await request.is_disconnected():
-                logger.info("Client disconnected.")
-                break
 
+        def emotion_events(kind: EmotionEventKind, value: Emotion | None = None) -> list[str]:
+            nonlocal turn_emotion, last_emotion
+            emotions, turn_emotion, last_emotion = next_emotion_events(kind, value, turn_emotion, last_emotion)
+            return [
+                SSEEvent(
+                    event=EventPayload.EMOTION,
+                    data=EmotionPayload(
+                        thread_id=agent_request.thread_id,
+                        llm_config=llm_config_dict,
+                        emotion=emotion,
+                    ),
+                ).to_sse_format()
+                for emotion in emotions
+            ]
+
+        def reply_events(message: ToolMessage | AIMessage) -> list[str]:
+            nonlocal has_llm_started
+            if isinstance(message, ToolMessage):
+                return [_process_tool_message(message, agent_request.thread_id, llm_config_dict)]
+            result = _process_ai_message(message, agent_request.thread_id, llm_config_dict, has_llm_started)
+            if not result:
+                return []
+            event_str, started_now = result
+            events = [event_str]
+            if message.tool_calls and message.tool_calls[0].get("name"):
+                events += emotion_events("tool_chosen")
+            elif started_now:
+                # First reply content after a think (llm_start or a later llm_delta) leaves "think".
+                events += emotion_events("llm_start")
+            has_llm_started = started_now
+            return events
+
+        def release() -> list[str]:
+            nonlocal pending, hold_over
+            hold_over = True
+            held, pending = pending, []
+            return [event for message in held for event in reply_events(message)]
+
+        def on_chunk(chunk: object) -> list[str]:
+            nonlocal detect_seen, state_emotion
             mode: str
             payload: object
             if (
                 isinstance(chunk, tuple)
                 and len(chunk) == 2
                 and isinstance(chunk[0], str)
-                and chunk[0] in {"messages", "values"}
+                and chunk[0] in {"messages", "values", "custom"}
             ):
                 mode, payload = chunk
             else:
                 mode, payload = "messages", chunk
 
+            events: list[str] = []
+            if mode == "custom":
+                # detect_emotion writes {"emotion": ...} the moment it has decided: the authoritative result.
+                if not (isinstance(payload, dict) and "emotion" in payload):
+                    return events
+                detect_seen = True
+                try:
+                    detected: Emotion | None = Emotion(str(payload["emotion"]))
+                except ValueError:
+                    logger.warning("detect_emotion sent an unknown emotion; releasing the held reply.")
+                    detected = None
+                if turn_emotion is None:
+                    events += emotion_events("state", detected)
+                if pending:
+                    events += release()
+                return events
             if mode == "messages":
                 metadata: dict[str, Any] | None = None
                 if isinstance(payload, tuple) and len(payload) == 2:
@@ -276,47 +355,75 @@ async def stream_react_emotion_agent(agent_request: AgentRequest, request: Reque
                     message = payload
 
                 if metadata and metadata.get("langgraph_node") == "detect_emotion":
-                    emotion_ready = True
-                    continue
-
-                if isinstance(message, ToolMessage):
-                    yield _process_tool_message(message, agent_request.thread_id, llm_config_dict)
-                elif isinstance(message, AIMessage):
-                    result = _process_ai_message(message, agent_request.thread_id, llm_config_dict, has_llm_started)
-                    if result:
-                        event_str, has_llm_started = result
-                        yield event_str
-            elif mode == "values" and emotion_ready:
-                state_payload = payload
-                if hasattr(state_payload, "model_dump") and callable(state_payload.model_dump):
-                    state_dict = state_payload.model_dump()
-                elif isinstance(state_payload, dict):
-                    state_dict = state_payload
+                    # The classifier's own tokens are not part of the reply; its result arrives as a custom chunk.
+                    detect_seen = True
+                elif isinstance(message, ToolMessage | AIMessage):
+                    # The classifier can finish a little after the reply's first token; hold the reply back
+                    # briefly so the emotion always reaches the client first.
+                    if turn_emotion is None and not hold_over:
+                        pending.append(message)
+                    else:
+                        events += reply_events(message)
+            elif mode == "values":
+                if hasattr(payload, "model_dump") and callable(payload.model_dump):
+                    state_dict = payload.model_dump()
+                elif isinstance(payload, dict):
+                    state_dict = payload
                 else:
                     state_dict = {}
+                try:
+                    state_emotion = Emotion(str(state_dict.get("emotion")))
+                except ValueError:
+                    return events
+                # Fallback when the classifier ran but its custom chunk never came: the state still has its label.
+                if detect_seen and turn_emotion is None:
+                    logger.warning("No detect_emotion result chunk; falling back to state emotion %s.", state_emotion)
+                    events += emotion_events("state", state_emotion)
 
-                emotion = state_dict.get("emotion")
-                if emotion is not None:
-                    if isinstance(emotion, Emotion):
-                        emotion_value = emotion
-                    else:
-                        try:
-                            emotion_value = Emotion(str(emotion))
-                        except ValueError:
-                            continue
+            if turn_emotion is not None and pending:
+                events += release()
+            return events
 
-                    if last_emotion == emotion_value:
-                        continue
+        stream = await react_emotion_agent.stream(
+            agent_request.get_langchain_messages(),
+            thread_id=agent_request.thread_id,
+            llm_config=agent_request.llm_config,
+        )
+        iterator = stream.__aiter__()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + EMOTION_HOLD_SECONDS
+        next_item: asyncio.Future | None = None
+        try:
+            while True:
+                if await request.is_disconnected():
+                    logger.info("Client disconnected.")
+                    return
+                if next_item is None:
+                    next_item = asyncio.ensure_future(iterator.__anext__())
+                timeout = max(0.0, deadline - loop.time()) if pending and not hold_over else None
+                done, _ = await asyncio.wait({next_item}, timeout=timeout)
+                if not done:
+                    # Classifier is slow or silent: stop holding and let the reply through.
+                    logger.warning("No emotion within %.1fs; releasing the held reply.", EMOTION_HOLD_SECONDS)
+                    for event_str in release():
+                        yield event_str
+                    continue
+                item_future, next_item = next_item, None
+                try:
+                    chunk = item_future.result()
+                except StopAsyncIteration:
+                    break
+                for event_str in on_chunk(chunk):
+                    yield event_str
 
-                    yield SSEEvent(
-                        event=EventPayload.EMOTION,
-                        data=EmotionPayload(
-                            thread_id=agent_request.thread_id,
-                            llm_config=llm_config_dict,
-                            emotion=emotion_value,
-                        ),
-                    ).to_sse_format()
-                    last_emotion = emotion_value
+            for event_str in release() if pending else []:
+                yield event_str
+            # Fallback when no detect result ever arrived: the final state still carries the turn's emotion.
+            if turn_emotion is None and state_emotion is not None:
+                for event_str in emotion_events("state", state_emotion):
+                    yield event_str
+        finally:
+            await _shutdown_stream(iterator, next_item)
 
     return StreamingResponse(
         stream_chunk(),

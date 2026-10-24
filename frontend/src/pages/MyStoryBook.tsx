@@ -17,6 +17,7 @@ import {
   Download,
 } from "lucide-react";
 import { exportChat } from "../utils/exportChat";
+import { cachedResizedDataUrl } from "../utils/imageResize";
 import Toast from "../components/Toast";
 
 // 後端位址：部署時由 VITE_API_URL 指定（AWS 等環境），本機開發預設 localhost
@@ -25,7 +26,7 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 /**
  * 「我的故事書」：上傳照片 → AI 看圖寫故事 → 翻頁電子書
  * --------------------------------------------------
- * 流程：開始 → 選 3～5 張照片 → 確認 → 生成中(真的呼叫後端) → 翻頁書
+ * 流程：開始 → 選 3～10 張照片（上傳前先縮到長邊 1600px）→ 確認 → 生成中(真的呼叫後端) → 翻頁書
  * - 照片：使用者上傳的真照片
  * - 故事：呼叫後端 POST /v1/story-book/generate（gpt-4o-mini 看圖生成）
  * - 朗讀：後端 Gemini TTS（/v1/story-book/speak），前端迷你播放器（進度/語速/連續唸）
@@ -82,21 +83,11 @@ const STORY_ENDING_FALLBACK =
   "謝謝這段故事，謝謝照片裡的每一刻。未來的日子，也要繼續留下更多美好的回憶。";
 
 const MIN_PHOTOS = 3;
-const MAX_PHOTOS = 5;
+const MAX_PHOTOS = 10;
 
 // 極短的無聲音檔，用來在使用者手勢中「解鎖」播放器（繞過 Safari 自動播放限制）
 const SILENT_AUDIO =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
-
-// File → base64 data URL（"data:image/jpeg;base64,..."）
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 export default function MyStoryBook() {
   const [step, setStep] = useState<Step>(() =>
@@ -144,8 +135,8 @@ export default function MyStoryBook() {
 
     setStep("generating");
     try {
-      // 照片轉成 base64 data URL，用 JSON 傳（後端不需 multipart 套件）
-      const dataUrls = await Promise.all(photos.map((p) => fileToDataUrl(p.file)));
+      // 照片先縮圖再轉 base64 data URL，用 JSON 傳（後端不需 multipart 套件）
+      const dataUrls = await Promise.all(photos.map((p) => cachedResizedDataUrl(p.file)));
       const res = await fetch(`${API_BASE}/v1/story-book/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -378,7 +369,7 @@ function BookStep({
       while (idx < photos.length) {
         const p = photos[idx++];
         try {
-          const dataUrl = await fileToDataUrl(p.file);
+          const dataUrl = await cachedResizedDataUrl(p.file);
           const res = await fetch(`${API_BASE}/v1/story-book/illustrate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -682,7 +673,7 @@ function BookStep({
       let photoData: string | undefined;
       if (screenNow?.type === "story") {
         const pf = photos.find((p) => p.url === screenNow.photo)?.file;
-        if (pf) photoData = await fileToDataUrl(pf);
+        if (pf) photoData = await cachedResizedDataUrl(pf);
       }
       const pageIndex = Math.max(0, Math.min(curRef.current - 1, story.pages.length - 1));
       const res = await fetch(`${API_BASE}/v1/story-book/chat`, {

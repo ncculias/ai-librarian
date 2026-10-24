@@ -3,6 +3,9 @@
 // 2) 依段落與句子切成小段，讓 Gemini TTS 一段一段合成、邊到邊播，不用等整篇念完才出聲
 
 export const SPEECH_CHUNK_MAX = 150;
+// 播放中同時預先合成幾段：Gemini 每段固定要 4～5 秒，只抓下一段的話，第一段短於 5 秒就會出現空檔；
+// 一次抓三段，第一段播完時後面幾段幾乎都已就緒。中途停止會多花最多三段的費用（每段約 NT$0.3）。
+export const SPEECH_PREFETCH_AHEAD = 3;
 
 export function stripMarkdownForSpeech(text: string): string {
   return (

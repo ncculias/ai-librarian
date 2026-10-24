@@ -16,12 +16,12 @@ class MessagesState(BaseModel):
 
 
 class Emotion(StrEnum):
-    ANGER = "anger"
-    SAD = "sad"
-    HAPPY = "happy"
     NEUTRAL = "neutral"
+    HAPPY = "happy"
+    SAD = "sad"
     ANGRY = "angry"
     SURPRISED = "surprised"
+    THINK = "think"
 
 
 class MessagesEmotionState(MessagesState):

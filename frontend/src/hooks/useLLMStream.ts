@@ -150,7 +150,7 @@ type SendConfig = {
 // async/await + Promise：向後端請求延伸問題
 async function requestFollowUps(session: ChatSession, answer: string, cfg: SendConfig) {
   try {
-    const res = await fetch(`${API_BASE}/v2/react/run`, {
+    const res = await fetch(`${API_BASE}/v1/react/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

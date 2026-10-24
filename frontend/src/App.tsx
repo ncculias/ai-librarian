@@ -8,6 +8,7 @@ import Placeholder from "./pages/Placeholder";
 import Home from "./Home";
 import Footer from "./components/Footer";
 import AmbientMotionLayer from "./components/AmbientMotionLayer";
+import ScrollToTop from "./components/ScrollToTop";
 import { ThemeProvider } from "./theme";
 // import FontSizeController from "./components/FontSizeController";
 
@@ -17,10 +18,11 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <ScrollToTop />
       <AmbientMotionLayer />
       {/* <FontSizeController /> */}
 
-      {!isHome && <Navbar />}
+      <Navbar />
 
       <div
         className={
