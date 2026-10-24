@@ -209,6 +209,8 @@
 .hs-stage img {
   height: 80vh;
   width: auto;
+  max-width: 40vw;
+  object-fit: contain;
   transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
   filter: drop-shadow(
     0 30px 40px color-mix(in srgb, var(--color-text-primary) 22%, transparent)
@@ -217,14 +219,17 @@
 
 .hs-call {
   position: absolute;
-  width: 300px;
+  width: min(300px, 26vw);
   opacity: 0;
   transform: translateY(24px);
+  pointer-events: none;
   transition:
     opacity 0.6s,
     transform 0.6s;
 }
-.hs-call.is-on {
+.hs-call.is-on,
+.hs-call:focus-within {
+  pointer-events: auto;
   opacity: 1;
   transform: translateY(0);
 }
@@ -234,7 +239,9 @@
 }
 .hs-call.c2 {
   right: 8vw;
-  top: 34vh;
+  /* 比原型再低一點，步驟 3 人物右移時，手上的書不會蓋到第一行字 */
+  top: 40vh;
+  width: min(300px, 22vw);
   text-align: right;
 }
 .hs-call.c3 {
@@ -266,7 +273,7 @@
   margin: 0 6px;
   background: var(--color-accent-strong);
 }
-.hs-call h3 {
+.hs-call h2 {
   margin: 8px 0 4px;
   font-size: 40px;
   letter-spacing: 0.06em;
@@ -344,7 +351,11 @@
     margin-top: 12px;
     max-width: none;
   }
-  /* 第二段：手機不釘住，人物在上、標註上下排，進入視窗時一起浮現 */
+}
+
+/* ───── 第二段：窄於 1024px（含平板、頂欄折行）不釘住 ───── */
+@media (max-width: 1023px) {
+  /* 第二段：窄螢幕（含平板）不釘住，人物在上、標註上下排，進入視窗時一起浮現 */
   .hs-stage-wrap {
     height: auto;
   }
@@ -353,11 +364,15 @@
     position: static;
     height: auto;
     display: block;
+    /* 新版 Chrome 的 block 容器也吃 place-items／align-content，要清掉否則標註會被縮寬置中 */
+    place-items: normal;
+    align-content: normal;
     padding: 8vh 6vw;
   }
   .hs-stage img {
     display: block;
     height: 46vh;
+    max-width: 100%;
     margin: 0 auto;
   }
   .hs-call,
