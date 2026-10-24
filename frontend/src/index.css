@@ -447,11 +447,6 @@
     linear-gradient(180deg, rgba(var(--color-bg-page-rgb), 0.98), var(--color-bg-page));
 }
 
-.home-title {
-  color: color-mix(in srgb, var(--color-accent-strong) 68%, var(--color-text-primary));
-  text-shadow: 0 6px 20px rgba(var(--color-shadow), 0.1);
-}
-
 .ambient-motion-layer {
   position: fixed;
   inset: 0;

@@ -41,7 +41,7 @@ export default function HomeStory() {
       </div>
 
       <div className="hs-cap">
-        <p className="hs-cap-title">{STORY.headline}</p>
+        <h2 className="hs-cap-title">{STORY.headline}</h2>
         <p className="msg-text-sm">{STORY.desc}</p>
       </div>
     </section>
