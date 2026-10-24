@@ -65,11 +65,12 @@ export const STORY = {
 export const STAGE_STEPS = [0.12, 0.42, 0.72] as const;
 
 /** 各步驟主視覺（人像）的位置與縮放，索引對應 stepFromProgress 的回傳值 */
+// 人物不再左右平移：快速捲動時步驟連跳，左右來回的過場會變成閃動；只留一點放大當回應
 export const STAGE_POSES = [
-  "translateX(0) scale(1)",
-  "translateX(14vw) scale(1.04)",
-  "translateX(-14vw) scale(1.04)",
-  "translateX(12vw) scale(1.02)",
+  "scale(1)",
+  "scale(1.03)",
+  "scale(1.03)",
+  "scale(1.03)",
 ] as const;
 
 /** 捲動進度 0..1 → 步驟 0..3；門檻含下界（剛好 0.12 即進入步驟 1）；NaN 與負值視為 0 */
