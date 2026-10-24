@@ -62,7 +62,7 @@ export const STORY = {
 } as const;
 
 /** 釘住區的捲動進度門檻：進度達到門檻就進入下一步 */
-export const STAGE_STEPS = [0.12, 0.42, 0.72] as const;
+export const STAGE_STEPS = [0.1, 0.35, 0.6] as const;
 
 /**
  * 人像位置的關鍵影格：[捲動進度, 水平位移 vw, 縮放]。
@@ -71,13 +71,13 @@ export const STAGE_STEPS = [0.12, 0.42, 0.72] as const;
  */
 export const STAGE_POSE_KEYFRAMES: readonly (readonly [number, number, number])[] = [
   [0, 0, 1],
-  [0.12, 0, 1], // 步驟 1 開始才動
-  [0.2, 14, 1.04], // 第一段：右
-  [0.42, 14, 1.04], // 步驟 2 開始
-  [0.5, -14, 1.04], // 第二段：左
-  [0.72, -14, 1.04], // 步驟 3 開始
-  [0.8, 12, 1.02], // 第三段：右
-  [1, 12, 1.02],
+  [0.1, 0, 1], // 步驟 1 開始才動
+  [0.17, 14, 1.04], // 第一段：右
+  [0.35, 14, 1.04], // 步驟 2 開始
+  [0.42, -14, 1.04], // 第二段：左
+  [0.6, -14, 1.04], // 步驟 3 開始
+  [0.67, 12, 1.02], // 第三段：右
+  [1, 12, 1.02], // 第三段停到底，讓使用者有時間讀完再離開
 ];
 
 /** 捲動進度 → 人像位置（線性內插）；NaN／超出範圍夾到 0..1 */
@@ -102,7 +102,7 @@ export function stagePoseTransform(p: number): string {
   return `translateX(${x.toFixed(2)}vw) scale(${scale.toFixed(3)})`;
 }
 
-/** 捲動進度 0..1 → 步驟 0..3；門檻含下界（剛好 0.12 即進入步驟 1）；NaN 與負值視為 0 */
+/** 捲動進度 0..1 → 步驟 0..3；門檻含下界（剛好 0.1 即進入步驟 1）；NaN 與負值視為 0 */
 export function stepFromProgress(p: number): 0 | 1 | 2 | 3 {
   if (!(p >= STAGE_STEPS[0])) return 0; // NaN、負值與未達第一道門檻都落在這裡
   if (p < STAGE_STEPS[1]) return 1;

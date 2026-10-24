@@ -200,7 +200,7 @@
 /* ───── 第二段：顏如玉釘住，三個標註依序出現 ───── */
 .hs-stage-wrap {
   position: relative;
-  height: 320vh;
+  height: 360vh; /* 比原本 320vh 長：第三步要留夠多的捲動距離讓人讀完，才滑到下一段 */
 }
 .hs-stage {
   position: sticky;
@@ -331,7 +331,7 @@
 /* 人物圖載入失敗：三個標註改成三欄置中 */
 /* 沒有人物圖撐場，高度縮短，避免大片空白 */
 .hs-stage-wrap:has(.no-portrait) {
-  height: 200vh;
+  height: 240vh;
 }
 .hs-stage.no-portrait {
   grid-template-areas: none;
