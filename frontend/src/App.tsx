@@ -20,7 +20,7 @@ export default function App() {
       <AmbientMotionLayer />
       {/* <FontSizeController /> */}
 
-      {!isHome && <Navbar />}
+      <Navbar />
 
       <div
         className={

@@ -440,12 +440,8 @@
 
 .home-shell {
   position: relative;
-  display: flex;
-  height: 100vh;
+  min-height: 100vh;
   width: 100%;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--color-accent-soft) 50%, transparent), transparent 42%),
     linear-gradient(180deg, rgba(var(--color-bg-page-rgb), 0.98), var(--color-bg-page));

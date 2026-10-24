@@ -1,0 +1,235 @@
+/* 首頁捲動敘事共用樣式；類別一律 hs- 前綴（hero / stage / story / index 共用） */
+
+/* 中文襯線大字 */
+.hs-serif {
+  font-family: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  font-weight: 900;
+}
+
+/* 很淡的噪點，蓋在整頁上、不擋點擊 */
+.hs-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+:root[data-theme="dark"] .hs-grain {
+  mix-blend-mode: screen;
+  opacity: 0.25;
+}
+
+/* ───── 第一段：Hero ───── */
+.hs-hero {
+  position: relative;
+  min-height: calc(100vh - 3.5rem);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.hs-blob {
+  position: absolute;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.hs-blob.a {
+  width: 46vw;
+  height: 46vw;
+  left: -10vw;
+  top: -10vh;
+  background: var(--color-accent-soft);
+}
+.hs-blob.b {
+  width: 36vw;
+  height: 36vw;
+  right: -8vw;
+  bottom: -10vh;
+  background: color-mix(in srgb, var(--color-accent-strong) 30%, transparent);
+}
+:root[data-theme="dark"] .hs-blob {
+  opacity: 0.4;
+}
+
+/* 中央淡藍光暈，緩慢脈動 */
+.hs-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: min(42vw, 520px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-accent-strong) 22%, transparent),
+    transparent 68%
+  );
+  pointer-events: none;
+  animation: hs-pulse 6s ease-in-out infinite;
+}
+@keyframes hs-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.12);
+    opacity: 1;
+  }
+}
+
+/* 三行大字（容器的 opacity / transform 由捲動 effect 控制） */
+.hs-big {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.hs-line {
+  font-size: clamp(90px, 17vw, 240px);
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  animation: hs-slide-in 1s both;
+}
+.hs-line.l1 {
+  position: absolute;
+  left: 8vw;
+  top: 12vh;
+  color: transparent;
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--color-text-primary) 40%, transparent);
+  animation-delay: 0.1s;
+}
+.hs-line.l2 {
+  position: absolute;
+  left: 18vw;
+  top: 33vh;
+  color: var(--color-text-primary);
+  animation-delay: 0.35s;
+}
+.hs-line.l3 {
+  position: absolute;
+  right: 8vw;
+  top: 55vh;
+  color: transparent;
+  -webkit-text-stroke: 2px var(--color-accent-strong);
+  animation-delay: 0.6s;
+}
+@keyframes hs-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.hs-sub {
+  position: absolute;
+  left: 7vw;
+  bottom: 12vh;
+  z-index: 4;
+  max-width: 320px;
+  color: var(--color-text-muted);
+}
+.hs-sub b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 1.25rem;
+  color: var(--color-text-primary);
+}
+
+/* 黃色標籤：唯一的字面色碼 */
+.hs-badge {
+  position: absolute;
+  right: 7vw;
+  bottom: 12vh;
+  z-index: 4;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #facc15;
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+  transform: rotate(-3deg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+.hs-badge small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.hs-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 4;
+  transform: translateX(-50%);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--color-text-muted);
+  animation: hs-bob 1.6s ease-in-out infinite;
+}
+@keyframes hs-bob {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 6px);
+  }
+}
+
+/* ───── 手機 ───── */
+@media (max-width: 767px) {
+  .hs-line {
+    font-size: 22vw;
+  }
+  /* 手機：頂欄會折行變高，改用相對於 hero 的百分比，避免壓到下方文案 */
+  .hs-line.l1 {
+    top: 6%;
+  }
+  .hs-line.l2 {
+    top: 26%;
+  }
+  .hs-line.l3 {
+    top: 44%;
+  }
+  .hs-hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-start;
+    padding: 0 6vw 56px;
+  }
+  .hs-sub,
+  .hs-badge {
+    position: static;
+    margin-top: 12px;
+    max-width: none;
+  }
+}
+
+/* ───── 減少動態：全部關閉 ───── */
+@media (prefers-reduced-motion: reduce) {
+  .hs-hero *,
+  .hs-stage *,
+  .hs-story *,
+  .hs-index * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
