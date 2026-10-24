@@ -22,7 +22,7 @@ export default function HomeHero() {
     let raf = 0;
     const update = () => {
       raf = 0;
-      const p = Math.min(1, window.scrollY / window.innerHeight);
+      const p = Math.min(1, window.scrollY / Math.max(1, window.innerHeight));
       el.style.opacity = String(Math.max(0, 1 - p * 1.2));
       el.style.transform = `translateY(${-60 * p}px)`;
     };
@@ -40,9 +40,9 @@ export default function HomeHero() {
 
   return (
     <section className="hs-hero">
-      <div className="hs-blob a" />
-      <div className="hs-blob b" />
-      <div className="hs-glow" />
+      <div className="hs-blob a" aria-hidden="true" />
+      <div className="hs-blob b" aria-hidden="true" />
+      <div className="hs-glow" aria-hidden="true" />
 
       <div className="hs-big" ref={bigRef}>
         {HERO.lines.map((line, i) => (
@@ -53,7 +53,7 @@ export default function HomeHero() {
       </div>
 
       <div className="hs-sub">
-        <b>{HERO.headline}</b>
+        <h1 className="hs-headline">{HERO.headline}</h1>
         <div className="msg-text-sm">{HERO.tagline}</div>
         <div className="msg-text">{HERO.desc}</div>
       </div>
