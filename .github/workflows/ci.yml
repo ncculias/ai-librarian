@@ -1,0 +1,53 @@
+# CI：每次開 PR 或推到 main 時自動跑測試與型別檢查，結果顯示在 PR 的 Checks。
+# 後端：uv + pytest；前端：tsc + node --test。沒有 eslint／ruff 全域檢查（既有程式碼還有舊錯誤，先不擋）。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 後端測試 (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+      - name: 安裝依賴（含 dev）
+        run: uv sync --group dev --frozen
+      - name: pytest
+        run: uv run --group dev pytest -q
+
+  frontend:
+    name: 前端型別檢查與測試 (tsc + node --test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安裝依賴
+        run: npm ci
+      - name: 型別檢查
+        run: npx tsc -b
+      - name: 單元測試
+        run: npm test
