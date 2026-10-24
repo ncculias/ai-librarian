@@ -26,19 +26,18 @@ test("stepFromProgress 依門檻切成 0..3，邊界含上界", () => {
   assert.deepEqual([...STAGE_STEPS], [0.12, 0.42, 0.72]);
 });
 
-test("stagePoseAt 依關鍵影格內插：頓點區段數值不變、左右互換前先回中間", () => {
+test("stagePoseAt 依關鍵影格內插：三段各自停住，段與段之間線性滑過", () => {
   assert.deepEqual(stagePoseAt(0), { x: 0, scale: 1 });
   assert.deepEqual(stagePoseAt(0.1), { x: 0, scale: 1 }); // 步驟 1 前不動
-  assert.deepEqual(stagePoseAt(0.27), { x: 14, scale: 1.04 }); // 右邊停
-  assert.deepEqual(stagePoseAt(0.4), { x: 0, scale: 1 }); // 1→2 之間的中間頓點
-  assert.deepEqual(stagePoseAt(0.57), { x: -14, scale: 1.04 }); // 左邊停
-  assert.deepEqual(stagePoseAt(0.7), { x: 0, scale: 1 }); // 2→3 之間的中間頓點
-  assert.deepEqual(stagePoseAt(0.9), { x: 12, scale: 1.02 });
+  assert.deepEqual(stagePoseAt(0.3), { x: 14, scale: 1.04 }); // 第一段：右
+  assert.deepEqual(stagePoseAt(0.42), { x: 14, scale: 1.04 }); // 步驟 2 起點仍在右
+  assert.deepEqual(stagePoseAt(0.6), { x: -14, scale: 1.04 }); // 第二段：左
+  assert.deepEqual(stagePoseAt(0.9), { x: 12, scale: 1.02 }); // 第三段：右
   assert.deepEqual(stagePoseAt(1), { x: 12, scale: 1.02 });
-  const mid = stagePoseAt(0.16); // 0.12→0.2 的一半：往右走到一半
-  assert.ok(Math.abs(mid.x - 7) < 1e-9 && Math.abs(mid.scale - 1.02) < 1e-9);
+  const mid = stagePoseAt(0.46); // 0.42→0.5 的一半：右→左走到中間
+  assert.ok(Math.abs(mid.x - 0) < 1e-9 && Math.abs(mid.scale - 1.04) < 1e-9);
   assert.deepEqual(stagePoseAt(Number.NaN), { x: 0, scale: 1 });
   assert.deepEqual(stagePoseAt(-1), { x: 0, scale: 1 });
   assert.deepEqual(stagePoseAt(2), { x: 12, scale: 1.02 });
-  assert.equal(stagePoseTransform(0.27), "translateX(14.00vw) scale(1.040)");
+  assert.equal(stagePoseTransform(0.3), "translateX(14.00vw) scale(1.040)");
 });
