@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import HomeHero from "./components/home/HomeHero";
 import HomeStage from "./components/home/HomeStage";
 import HomeStory from "./components/home/HomeStory";
-import HomeIndex from "./components/home/HomeIndex";
 import "./components/home/home.css";
 import { useTheme } from "./theme";
 
@@ -41,7 +40,6 @@ export default function Home() {
       <HomeHero />
       <HomeStage />
       <HomeStory />
-      <HomeIndex />
     </div>
   );
 }

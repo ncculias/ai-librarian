@@ -61,13 +61,6 @@ export const STORY = {
   desc: "照片先在你的裝置上縮圖，再由 AI 看圖寫故事、真人語音朗讀。",
 } as const;
 
-// 第四段（索引式入口）的標頭
-export const INDEX_HEAD = {
-  eyebrow: "Start here",
-  title: "想從哪裡開始？",
-  lead: "三個功能，點一行就進去。不確定的話，先從聊天問答開始。",
-} as const;
-
 /** 釘住區的捲動進度門檻：進度達到門檻就進入下一步 */
 export const STAGE_STEPS = [0.12, 0.42, 0.72] as const;
 
